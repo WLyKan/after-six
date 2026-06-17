@@ -196,36 +196,61 @@ function getStaffIdFromIframe(doc: Document): string | null {
 function injectDailyOvertime(doc: Document, detailList: Array<{ work_day: string; sumString: string; sum: number }>) {
   console.log('[加班统计] 开始注入每日加班工时...');
 
-  // 获取所有日期单元格
-  const cells = doc.querySelectorAll('td[id^="kqcal_td_"]');
-  console.log(`[加班统计] 找到 ${cells.length} 个日期单元格`);
+  // 获取所有日期单元格 - 使用 fc-day class
+  const cells = doc.querySelectorAll('td.fc-day');
+  console.log(`[加班统计] 找到 ${cells.length} 个日期单元格 (fc-day)`);
 
   let injectedCount = 0;
 
   cells.forEach((cell) => {
-    const cellId = cell.id; // 格式: kqcal_td_2026-6-1
-    const dateMatch = cellId.match(/kqcal_td_(\d{4}-\d{1,2}-\d{1,2})/);
+    // 尝试从 data-date 属性获取日期
+    let dateStr = cell.getAttribute('data-date');
 
-    if (dateMatch) {
-      const dateStr = dateMatch[1];
+    // 如果没有 data-date，尝试从 class 中提取日期
+    if (!dateStr) {
+      const classMatch = cell.className.match(/fc-day-(\d{4}-\d{2}-\d{2})/);
+      if (classMatch) {
+        dateStr = classMatch[1];
+      }
+    }
+
+    // 如果还没有，尝试从 id 中提取日期
+    if (!dateStr) {
+      const idMatch = cell.id.match(/kqcal_td_(\d{4}-\d{1,2}-\d{1,2})/);
+      if (idMatch) {
+        dateStr = idMatch[1];
+      }
+    }
+
+    if (dateStr) {
       // 查找该日期的加班数据
       const detail = detailList.find((d) => {
         // 标准化日期格式进行比较
         const normalizedWorkDay = normalizeDate(d.work_day);
-        const normalizedDate = normalizeDate(dateStr);
+        const normalizedDate = normalizeDate(dateStr!);
         return normalizedWorkDay === normalizedDate;
       });
 
       if (detail && detail.sum > 0) {
-        // 创建加班工时显示元素
+        const hour = Math.floor(detail.sum / 1000 / 60 / 60);
+        const minute = Math.floor((detail.sum / 1000 / 60) % 60);
+        const text = hour > 0 && minute > 0 ? `${hour}h ${minute}m` : hour > 0 ? `${hour}h` : `${minute}m`;
+
         const overtimeEl = doc.createElement('div');
-        overtimeEl.textContent = detail.sumString;
+        overtimeEl.textContent = text;
         overtimeEl.style.cssText = `
-          font-size: 11px;
-          color: #e74c3c;
-          font-weight: bold;
-          margin-top: 2px;
+          position: absolute;
+          right: 2px;
+          bottom: 2px;
+          font-size: 10px;
+          line-height: 1.4;
+          padding: 1px 3px;
+          border-radius: 3px;
+          background: rgba(0, 0, 0, 0.06);
+          font-variant-numeric: tabular-nums;
+          white-space: nowrap;
         `;
+        cell.style.position = 'relative';
         cell.appendChild(overtimeEl);
         injectedCount++;
         console.log(`[加班统计] 在 ${dateStr} 注入加班工时: ${detail.sumString}`);
