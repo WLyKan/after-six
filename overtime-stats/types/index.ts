@@ -23,7 +23,7 @@ export interface OvertimeDetail {
   xb_dk_time: string | null;
   type: number; // 0: 平时, 1: 周末
   typename: string;
-  startTime: Date;
+  startTime: string;
   sum: number; // 毫秒
   sumString: string;
 }
