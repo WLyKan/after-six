@@ -3,50 +3,71 @@ export default defineContentScript({
   main() {
     console.log('[加班统计] Content script 已加载');
     console.log('[加班统计] 当前URL:', window.location.href);
-    console.log('[加班统计] 页面标题:', document.title);
-
-    // 列出页面上所有的form元素
-    const forms = document.querySelectorAll('form');
-    console.log(`[加班统计] 页面上找到 ${forms.length} 个 form 元素`);
-    forms.forEach((form, i) => {
-      console.log(`[加班统计] form[${i}]:`, form.id || form.name || '(无id/name)');
-    });
-
-    // 列出页面上所有的input[name="staff_id"]元素
-    const staffInputs = document.querySelectorAll('input[name="staff_id"]');
-    console.log(`[加班统计] 页面上找到 ${staffInputs.length} 个 input[name="staff_id"] 元素`);
 
     initOvertimeStats();
   },
 });
 
 async function initOvertimeStats() {
-  const MAX_RETRIES = 5;
-  const RETRY_DELAY = 1000;
+  const MAX_RETRIES = 10;
+  const RETRY_DELAY = 1500;
 
-  console.log('[加班统计] 开始查找目标容器...');
+  console.log('[加班统计] 开始查找 iframe...');
 
   for (let i = 0; i < MAX_RETRIES; i++) {
-    const container = document.querySelector(
-      'body > div:nth-child(1) > div > div > form:nth-child(1) > div:nth-child(2) > div:nth-child(2) > div:nth-child(1) > div > div'
-    );
+    const iframe = document.querySelector('#portalframe') as HTMLIFrameElement;
 
-    if (container) {
-      console.log('[加班统计] 找到目标容器，开始注入统计信息');
-      await injectOvertimeStats(container as HTMLElement);
-      return;
+    if (iframe) {
+      console.log('[加班统计] 找到 iframe #portalframe');
+
+      // 等待 iframe 加载完成
+      if (iframe.contentDocument && iframe.contentDocument.readyState === 'complete') {
+        console.log('[加班统计] iframe 已加载完成');
+
+        // 尝试在 iframe 内查找容器
+        const iframeDoc = iframe.contentDocument;
+        const container = iframeDoc.querySelector(
+          'form:nth-child(1) > div:nth-child(2) > div:nth-child(2) > div:nth-child(1) > div > div'
+        );
+
+        if (container) {
+          console.log('[加班统计] 在 iframe 中找到目标容器');
+          await injectOvertimeStats(iframeDoc, container as HTMLElement);
+          return;
+        } else {
+          console.log('[加班统计] iframe 中未找到容器，尝试其他选择器...');
+
+          // 列出 iframe 中的所有 form 元素
+          const forms = iframeDoc.querySelectorAll('form');
+          console.log(`[加班统计] iframe 中有 ${forms.length} 个 form 元素`);
+
+          // 尝试更通用的选择器
+          const allDivs = iframeDoc.querySelectorAll('div');
+          console.log(`[加班统计] iframe 中有 ${allDivs.length} 个 div 元素`);
+
+          // 查找包含考勤日历的元素
+          const kqElements = iframeDoc.querySelectorAll('[id*="kq"], [class*="kq"]');
+          console.log(`[加班统计] 找到 ${kqElements.length} 个包含 "kq" 的元素`);
+          kqElements.forEach((el, idx) => {
+            console.log(`[加班统计] kq 元素 ${idx}:`, el.tagName, el.id, el.className);
+          });
+        }
+      } else {
+        console.log(`[加班统计] iframe 尚未加载完成 (readyState: ${iframe.contentDocument?.readyState})`);
+      }
+    } else {
+      console.log(`[加班统计] 第 ${i + 1} 次未找到 iframe #portalframe`);
     }
 
-    console.log(`[加班统计] 第 ${i + 1} 次查找容器未找到，${RETRY_DELAY}ms 后重试...`);
     await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY));
   }
 
-  console.warn('[加班统计] 目标容器未找到，已重试 ' + MAX_RETRIES + ' 次');
+  console.warn('[加班统计] 无法找到 iframe 或容器');
 }
 
-async function injectOvertimeStats(container: HTMLElement) {
-  // 从页面获取staff_id
-  const staffId = getStaffIdFromPage();
+async function injectOvertimeStats(doc: Document, container: HTMLElement) {
+  // 从 iframe 获取 staff_id
+  const staffId = getStaffIdFromIframe(doc);
 
   console.log('[加班统计] 获取到的 staff_id:', staffId);
 
@@ -89,7 +110,7 @@ async function injectOvertimeStats(container: HTMLElement) {
         appendMessage(container, `本月加班: ${hour}小时${minute}分钟`);
 
         // 在每个日期单元格上显示加班工时
-        injectDailyOvertime(detailList);
+        injectDailyOvertime(doc, detailList);
       } else {
         console.error('[加班统计] 获取数据失败:', response.error);
         appendMessage(container, response.error || '数据获取失败');
@@ -98,35 +119,35 @@ async function injectOvertimeStats(container: HTMLElement) {
   );
 }
 
-function getStaffIdFromPage(): string | null {
-  console.log('[加班统计] 尝试从页面获取 staff_id...');
+function getStaffIdFromIframe(doc: Document): string | null {
+  console.log('[加班统计] 尝试从 iframe 获取 staff_id...');
 
-  // 从页面的input元素获取staff_id
-  const staffInput = document.querySelector('input[name="staff_id"]') as HTMLInputElement;
+  // 从 iframe 的 input 元素获取 staff_id
+  const staffInput = doc.querySelector('input[name="staff_id"]') as HTMLInputElement;
   if (staffInput && staffInput.value) {
-    console.log('[加班统计] 从 input[name="staff_id"] 获取到:', staffInput.value);
+    console.log('[加班统计] 从 iframe input[name="staff_id"] 获取到:', staffInput.value);
     return staffInput.value;
   }
 
-  // 尝试从iframe获取
-  const iframe = document.querySelector('#portalframe') as HTMLIFrameElement;
-  if (iframe && iframe.contentDocument) {
-    const iframeInput = iframe.contentDocument.querySelector('input[name="staff_id"]') as HTMLInputElement;
-    if (iframeInput && iframeInput.value) {
-      console.log('[加班统计] 从 iframe input[name="staff_id"] 获取到:', iframeInput.value);
-      return iframeInput.value;
+  // 尝试从隐藏字段获取
+  const hiddenInputs = doc.querySelectorAll('input[type="hidden"]');
+  console.log(`[加班统计] 找到 ${hiddenInputs.length} 个隐藏字段`);
+  hiddenInputs.forEach((input) => {
+    const htmlInput = input as HTMLInputElement;
+    if (htmlInput.name && htmlInput.value) {
+      console.log(`[加班统计] 隐藏字段: ${htmlInput.name} = ${htmlInput.value}`);
     }
-  }
+  });
 
   console.warn('[加班统计] 未找到 staff_id');
   return null;
 }
 
-function injectDailyOvertime(detailList: Array<{ work_day: string; sumString: string; sum: number }>) {
+function injectDailyOvertime(doc: Document, detailList: Array<{ work_day: string; sumString: string; sum: number }>) {
   console.log('[加班统计] 开始注入每日加班工时...');
 
   // 获取所有日期单元格
-  const cells = document.querySelectorAll('td[id^="kqcal_td_"]');
+  const cells = doc.querySelectorAll('td[id^="kqcal_td_"]');
   console.log(`[加班统计] 找到 ${cells.length} 个日期单元格`);
 
   let injectedCount = 0;
@@ -147,7 +168,7 @@ function injectDailyOvertime(detailList: Array<{ work_day: string; sumString: st
 
       if (detail && detail.sum > 0) {
         // 创建加班工时显示元素
-        const overtimeEl = document.createElement('div');
+        const overtimeEl = doc.createElement('div');
         overtimeEl.textContent = detail.sumString;
         overtimeEl.style.cssText = `
           font-size: 11px;
