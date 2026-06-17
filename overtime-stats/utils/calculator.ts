@@ -107,7 +107,9 @@ export function getDaysArray(year: number, month: number): string[] {
   const dayArray: string[] = [];
 
   for (let day = 1; day <= dayCount; day++) {
-    dayArray.push(`${year}-${month}-${day}`);
+    const paddedMonth = String(month).padStart(2, '0');
+    const paddedDay = String(day).padStart(2, '0');
+    dayArray.push(`${year}-${paddedMonth}-${paddedDay}`);
   }
 
   return dayArray;

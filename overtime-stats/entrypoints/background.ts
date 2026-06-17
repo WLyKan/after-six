@@ -1,12 +1,14 @@
 import { fetchDailyAttendance } from '../utils/api';
 import { calculateOvertime, getDaysArray } from '../utils/calculator';
-import type { MessageRequest, MessageResponse } from '../types';
+import type { ApiResponse, MessageRequest, MessageResponse } from '../types';
+
+const BATCH_SIZE = 5;
 
 export default defineBackground(() => {
-  chrome.runtime.onMessage.addListener(
+  browser.runtime.onMessage.addListener(
     (
       request: MessageRequest,
-      sender: chrome.runtime.MessageSender,
+      sender: browser.runtime.MessageSender,
       sendResponse: (response: MessageResponse) => void
     ) => {
       if (request.action === 'getOvertimeStats') {
@@ -18,17 +20,40 @@ export default defineBackground(() => {
               error: error instanceof Error ? error.message : 'Unknown error',
             });
           });
-        return true; // 保持消息通道开放
+        return true;
       }
     }
   );
 });
+
+async function fetchWithConcurrency(
+  staffId: string,
+  days: string[]
+): Promise<ApiResponse[]> {
+  const results: ApiResponse[] = [];
+
+  for (let i = 0; i < days.length; i += BATCH_SIZE) {
+    const batch = days.slice(i, i + BATCH_SIZE);
+    const batchResults = await Promise.allSettled(
+      batch.map((day) => fetchDailyAttendance(staffId, day))
+    );
+
+    for (const result of batchResults) {
+      if (result.status === 'fulfilled') {
+        results.push(result.value);
+      }
+    }
+  }
+
+  return results;
+}
 
 async function handleGetOvertimeStats(): Promise<MessageResponse> {
   try {
     const now = new Date();
     const year = now.getFullYear();
     const month = now.getMonth() + 1;
+    const today = now.getDate();
 
     const staffId = await getStaffIdFromStorage();
 
@@ -39,9 +64,8 @@ async function handleGetOvertimeStats(): Promise<MessageResponse> {
       };
     }
 
-    const days = getDaysArray(year, month);
-    const promises = days.map((day) => fetchDailyAttendance(staffId, day));
-    const results = await Promise.all(promises);
+    const days = getDaysArray(year, month).filter((_, index) => index < today);
+    const results = await fetchWithConcurrency(staffId, days);
 
     const validRecords = results
       .filter((r) => r.data && r.data.length > 0)
@@ -62,6 +86,6 @@ async function handleGetOvertimeStats(): Promise<MessageResponse> {
 }
 
 async function getStaffIdFromStorage(): Promise<string | null> {
-  const result = await chrome.storage.local.get('staffId');
+  const result = await browser.storage.local.get('staffId');
   return result.staffId || null;
 }
