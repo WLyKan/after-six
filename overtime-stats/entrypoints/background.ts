@@ -12,7 +12,7 @@ export default defineBackground(() => {
       sendResponse: (response: MessageResponse) => void
     ) => {
       if (request.action === 'getOvertimeStats') {
-        handleGetOvertimeStats()
+        handleGetOvertimeStats(request.staffId)
           .then(sendResponse)
           .catch((error) => {
             sendResponse({
@@ -48,21 +48,19 @@ async function fetchWithConcurrency(
   return results;
 }
 
-async function handleGetOvertimeStats(): Promise<MessageResponse> {
+async function handleGetOvertimeStats(staffId?: string): Promise<MessageResponse> {
   try {
-    const now = new Date();
-    const year = now.getFullYear();
-    const month = now.getMonth() + 1;
-    const today = now.getDate();
-
-    const staffId = await getStaffIdFromStorage();
-
     if (!staffId) {
       return {
         success: false,
         error: '无法获取工号，请确认已登录系统',
       };
     }
+
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = now.getMonth() + 1;
+    const today = now.getDate();
 
     const days = getDaysArray(year, month).filter((_, index) => index < today);
     const results = await fetchWithConcurrency(staffId, days);
@@ -83,9 +81,4 @@ async function handleGetOvertimeStats(): Promise<MessageResponse> {
       error: error instanceof Error ? error.message : '获取数据失败',
     };
   }
-}
-
-async function getStaffIdFromStorage(): Promise<string | null> {
-  const result = await browser.storage.local.get('staffId');
-  return result.staffId || null;
 }

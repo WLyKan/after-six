@@ -39,6 +39,7 @@ export interface OvertimeStats {
 // 消息类型
 export interface MessageRequest {
   action: 'getOvertimeStats';
+  staffId?: string;
 }
 
 export interface MessageResponse {

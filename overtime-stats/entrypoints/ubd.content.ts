@@ -35,17 +35,24 @@ async function injectOvertimeStats(container: HTMLElement) {
     return;
   }
 
-  // 先缓存staff_id到storage供background使用
-  await browser.storage.local.set({ staffId });
-
   // 显示加载中
   const loadingEl = appendMessage(container, '加载中...');
 
   // 发送消息给background获取数据
   browser.runtime.sendMessage(
-    { action: 'getOvertimeStats' },
+    { action: 'getOvertimeStats', staffId },
     (response) => {
       loadingEl.remove();
+
+      if (browser.runtime.lastError) {
+        appendMessage(container, '通信失败: ' + browser.runtime.lastError.message);
+        return;
+      }
+
+      if (!response) {
+        appendMessage(container, '未收到响应');
+        return;
+      }
 
       if (response.success && response.data) {
         const { allTime } = response.data;
