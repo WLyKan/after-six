@@ -10,53 +10,76 @@ export default defineContentScript({
 
 async function initOvertimeStats() {
   const MAX_RETRIES = 10;
-  const RETRY_DELAY = 1500;
+  const RETRY_DELAY = 2000;
 
   console.log('[加班统计] 开始查找 iframe...');
+  console.log('[加班统计] 页面所有 iframe:', document.querySelectorAll('iframe').length);
+
+  // 列出所有 iframe
+  document.querySelectorAll('iframe').forEach((iframe, i) => {
+    console.log(`[加班统计] iframe ${i}: id=${iframe.id}, name=${iframe.name}, src=${iframe.src?.substring(0, 100)}`);
+  });
 
   for (let i = 0; i < MAX_RETRIES; i++) {
-    const iframe = document.querySelector('#portalframe') as HTMLIFrameElement;
+    // 尝试多种方式查找 iframe
+    let iframe = document.querySelector('#portalframe') as HTMLIFrameElement;
+    if (!iframe) {
+      iframe = document.querySelector('iframe[name="portalframe"]') as HTMLIFrameElement;
+    }
+    if (!iframe) {
+      // 尝试查找包含考勤页面的 iframe
+      iframe = Array.from(document.querySelectorAll('iframe')).find(f =>
+        f.src?.includes('kq_count_calendar') || f.src?.includes('kqV2')
+      ) as HTMLIFrameElement;
+    }
 
     if (iframe) {
-      console.log('[加班统计] 找到 iframe #portalframe');
+      console.log('[加班统计] 找到 iframe:', iframe.id || iframe.name || iframe.src?.substring(0, 50));
 
       // 等待 iframe 加载完成
-      if (iframe.contentDocument && iframe.contentDocument.readyState === 'complete') {
-        console.log('[加班统计] iframe 已加载完成');
+      try {
+        const iframeDoc = iframe.contentDocument || iframe.contentWindow?.document;
+        if (iframeDoc) {
+          console.log('[加班统计] 可以访问 iframe 文档');
 
-        // 尝试在 iframe 内查找容器
-        const iframeDoc = iframe.contentDocument;
-        const container = iframeDoc.querySelector(
-          'form:nth-child(1) > div:nth-child(2) > div:nth-child(2) > div:nth-child(1) > div > div'
-        );
+          // 查找容器
+          const container = iframeDoc.querySelector(
+            'form:nth-child(1) > div:nth-child(2) > div:nth-child(2) > div:nth-child(1) > div > div'
+          );
 
-        if (container) {
-          console.log('[加班统计] 在 iframe 中找到目标容器');
-          await injectOvertimeStats(iframeDoc, container as HTMLElement);
-          return;
+          if (container) {
+            console.log('[加班统计] 在 iframe 中找到目标容器');
+            await injectOvertimeStats(iframeDoc, container as HTMLElement);
+            return;
+          } else {
+            console.log('[加班统计] iframe 中未找到容器');
+
+            // 查找所有包含 "kq" 的元素
+            const kqElements = iframeDoc.querySelectorAll('[id*="kq"], [class*="kq"], [name*="kq"]');
+            console.log(`[加班统计] 找到 ${kqElements.length} 个包含 "kq" 的元素`);
+
+            // 查找包含考勤日历的表格
+            const tables = iframeDoc.querySelectorAll('table');
+            console.log(`[加班统计] 找到 ${tables.length} 个表格`);
+
+            // 查找 staff_id
+            const staffInput = iframeDoc.querySelector('input[name="staff_id"]') as HTMLInputElement;
+            if (staffInput) {
+              console.log('[加班统计] 找到 staff_id:', staffInput.value);
+            }
+          }
         } else {
-          console.log('[加班统计] iframe 中未找到容器，尝试其他选择器...');
-
-          // 列出 iframe 中的所有 form 元素
-          const forms = iframeDoc.querySelectorAll('form');
-          console.log(`[加班统计] iframe 中有 ${forms.length} 个 form 元素`);
-
-          // 尝试更通用的选择器
-          const allDivs = iframeDoc.querySelectorAll('div');
-          console.log(`[加班统计] iframe 中有 ${allDivs.length} 个 div 元素`);
-
-          // 查找包含考勤日历的元素
-          const kqElements = iframeDoc.querySelectorAll('[id*="kq"], [class*="kq"]');
-          console.log(`[加班统计] 找到 ${kqElements.length} 个包含 "kq" 的元素`);
-          kqElements.forEach((el, idx) => {
-            console.log(`[加班统计] kq 元素 ${idx}:`, el.tagName, el.id, el.className);
-          });
+          console.log('[加班统计] 无法访问 iframe 文档（可能跨域）');
         }
-      } else {
-        console.log(`[加班统计] iframe 尚未加载完成 (readyState: ${iframe.contentDocument?.readyState})`);
+      } catch (e) {
+        console.error('[加班统计] 访问 iframe 出错:', e);
       }
     } else {
-      console.log(`[加班统计] 第 ${i + 1} 次未找到 iframe #portalframe`);
+      console.log(`[加班统计] 第 ${i + 1} 次未找到 iframe`);
+
+      // 检查页面是否有动态加载的内容
+      const allElements = document.querySelectorAll('*');
+      console.log(`[加班统计] 页面共有 ${allElements.length} 个元素`);
     }
 
     await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY));
