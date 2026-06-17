@@ -3,11 +3,13 @@ node_modules/
 
 # Build output
 .output/
-.dev/
+.wxt/
 
 # IDE
 .vscode/
 .idea/
+*.swp
+*.swo
 
 # OS
 .DS_Store
@@ -18,5 +20,9 @@ Thumbs.db
 .env.local
 .env.*.local
 
-# WXT
-.wxt/
+# Logs
+*.log
+npm-debug.log*
+
+# Misc
+*.zip
