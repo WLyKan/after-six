@@ -27,6 +27,9 @@ export function calculateOvertime(records: AttendanceRecord[]): OvertimeStats {
       const sbdkTime = new Date(actualSbDk);
       const xbdkTime = new Date(actualXbDk);
 
+      // Skip if clock-out is before clock-in (malformed data)
+      if (xbdkTime <= sbdkTime) continue;
+
       if (datetypename === '工作日') {
         let startTime: Date;
         if (sbdkTime <= time8) {
@@ -63,7 +66,6 @@ export function calculateOvertime(records: AttendanceRecord[]): OvertimeStats {
           sumString: sum > 0 ? timeToString(sum) : '0',
         });
       } else {
-        const maxStartTime = new Date(`${work_day} 18:30:00`);
         if (sbdkTime < new Date(`${work_day} 18:00:00`)) {
           const sum = xbdkTime.getTime() - maxStartTime.getTime();
           detailList.push({
