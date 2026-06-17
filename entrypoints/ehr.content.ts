@@ -58,6 +58,17 @@ async function initOvertimeStats() {
             const kqElements = iframeDoc.querySelectorAll('[id*="kq"], [class*="kq"], [name*="kq"]');
             console.log(`[加班统计] 找到 ${kqElements.length} 个包含 "kq" 的元素`);
 
+            // 打印 iframe 的 body 结构
+            console.log('[加班统计] iframe body 结构:');
+            const body = iframeDoc.body;
+            if (body) {
+              console.log('body > div 数量:', body.children.length);
+              for (let i = 0; i < Math.min(body.children.length, 5); i++) {
+                const child = body.children[i];
+                console.log(`  body > div:nth-child(${i + 1}): tag=${child.tagName}, id=${child.id}, class=${child.className?.substring(0, 50)}`);
+              }
+            }
+
             // 查找包含考勤日历的表格
             const tables = iframeDoc.querySelectorAll('table');
             console.log(`[加班统计] 找到 ${tables.length} 个表格`);
@@ -66,6 +77,22 @@ async function initOvertimeStats() {
             const staffInput = iframeDoc.querySelector('input[name="staff_id"]') as HTMLInputElement;
             if (staffInput) {
               console.log('[加班统计] 找到 staff_id:', staffInput.value);
+            }
+
+            // 尝试用户提供的 XPath 路径
+            const xpathResult = iframeDoc.evaluate(
+              '/html/body/div[1]/div/div/form[1]/div[2]/div[2]/div[1]/div/div',
+              iframeDoc,
+              null,
+              XPathResult.FIRST_ORDERED_NODE_TYPE,
+              null
+            );
+            if (xpathResult.singleNodeValue) {
+              console.log('[加班统计] 通过 XPath 找到容器!');
+              await injectOvertimeStats(iframeDoc, xpathResult.singleNodeValue as HTMLElement);
+              return;
+            } else {
+              console.log('[加班统计] XPath 未找到容器');
             }
           }
         } else {
