@@ -2,6 +2,20 @@ export default defineContentScript({
   matches: ['*://ehr.supcon.com/*'],
   main() {
     console.log('[加班统计] Content script 已加载');
+    console.log('[加班统计] 当前URL:', window.location.href);
+    console.log('[加班统计] 页面标题:', document.title);
+
+    // 列出页面上所有的form元素
+    const forms = document.querySelectorAll('form');
+    console.log(`[加班统计] 页面上找到 ${forms.length} 个 form 元素`);
+    forms.forEach((form, i) => {
+      console.log(`[加班统计] form[${i}]:`, form.id || form.name || '(无id/name)');
+    });
+
+    // 列出页面上所有的input[name="staff_id"]元素
+    const staffInputs = document.querySelectorAll('input[name="staff_id"]');
+    console.log(`[加班统计] 页面上找到 ${staffInputs.length} 个 input[name="staff_id"] 元素`);
+
     initOvertimeStats();
   },
 });
@@ -14,7 +28,7 @@ async function initOvertimeStats() {
 
   for (let i = 0; i < MAX_RETRIES; i++) {
     const container = document.querySelector(
-      'body > div:nth-child(1) > div > div > form:nth-child(1) > div:nth-child(2) > div:nth-child(2) > div:nth-child(1)'
+      'body > div:nth-child(1) > div > div > form:nth-child(1) > div:nth-child(2) > div:nth-child(2) > div:nth-child(1) > div > div'
     );
 
     if (container) {
