@@ -1,7 +1,11 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { fetchDailyAttendance } from '../api';
 
 describe('fetchDailyAttendance', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it('should call correct URL', async () => {
     const mockResponse = { data: [] };
     global.fetch = vi.fn().mockResolvedValue({
