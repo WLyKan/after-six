@@ -23,6 +23,9 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
+      - name: Sync version from tag
+        run: node scripts/sync-version.mjs ${{ github.ref_name }}
+
       - run: pnpm zip
 
       - name: Upload to Release
