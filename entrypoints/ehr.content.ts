@@ -258,26 +258,30 @@ function setupMonthChangeListener(doc: Document, staffId: string, iframe: HTMLIF
     }, DEBOUNCE_MS);
   };
 
-  // 策略1: MutationObserver — 监听日历区域 DOM 变化
-  const calendarBody =
-    doc.querySelector('.fc-body') ||
-    doc.querySelector('.fc-view-container') ||
-    doc.querySelector('table.fc-border-separate');
+  // 策略1: MutationObserver — 监听整个 body，捕获工具栏和日历区域的所有 DOM 变化
+  const observer = new MutationObserver(checkMonthChange);
+  observer.observe(doc.body, { childList: true, subtree: true });
+  console.log('[加班统计] MutationObserver 已挂载到 body');
 
-  if (calendarBody) {
-    const observer = new MutationObserver(checkMonthChange);
-    observer.observe(calendarBody, { childList: true, subtree: true });
-    console.log('[加班统计] MutationObserver 已挂载到:', calendarBody.tagName);
-  }
-
-  // 策略2: click 事件委托 — 监听前进/后退按钮
+  // 策略2: click 事件委托 — 监听所有月份导航按钮（含今天按钮）
   doc.addEventListener('click', (e) => {
     const target = e.target as HTMLElement;
     const btn = target.closest(
-      '.fc-prev-button, .fc-next-button, .fc-prev, .fc-next, [class*="fc-button-prev"], [class*="fc-button-next"]'
+      '.fc-prev-button, .fc-next-button, .fc-prev, .fc-next, ' +
+      '[class*="fc-button-prev"], [class*="fc-button-next"], ' +
+      '.fc-today-button, .fc-today, [class*="fc-today"]'
     );
     if (btn) {
-      console.log('[加班统计] 点击月份导航按钮');
+      console.log('[加班统计] 点击导航按钮:', btn.className || btn.textContent?.trim());
+      checkMonthChange();
+    }
+  }, true);
+
+  // 策略3: change 事件 — 监听工具栏中的年/月下拉选择框
+  doc.addEventListener('change', (e) => {
+    const target = e.target as HTMLElement;
+    if (target.tagName === 'SELECT') {
+      console.log('[加班统计] 下拉选择变更:', (target as HTMLSelectElement).value);
       checkMonthChange();
     }
   }, true);

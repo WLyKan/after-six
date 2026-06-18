@@ -4,8 +4,24 @@ import type { ApiResponse, MessageRequest, MessageResponse } from '../types';
 
 const BATCH_SIZE = 5;
 
+const EHR_URL = 'https://ehr.supcon.com/RedseaPlatform/jsp/customized/zhongkong/middleJump.jsp?tourl=https%3A%2F%2Fehr.supcon.com%2FRedseaPlatform%2FPtPortal.mc%3Fmethod%3Dclassic%23iframe%260%26nworktoday-40175-99568-54638-53885%26nworktoday-40175-99568-54638%7C%2FRedseaPlatform%2Fjsp%2FkqV2%2Fkqcount%2Fkq_count_calendar.jsp%3FnoNeedStaffId%3D1%26_t%3D1689062111283%26treePermitType%3Dpermit%26useSealTreeData%3D0%26menuName%3D%25E6%2588%2591%25E7%259A%2584%25E6%258E%2592%25E7%258F%25ADV2%26_t%3D1689062111283';
+
 export default defineBackground(() => {
   console.log('[加班统计] Background script 已启动');
+
+  // 点击工具栏图标 → 打开/切换到考勤页面
+  browser.action.onClicked.addListener(async () => {
+    const pattern = '*://ehr.supcon.com/*';
+    const tabs = await browser.tabs.query({ url: pattern });
+    if (tabs.length > 0 && tabs[0].id) {
+      await browser.tabs.update(tabs[0].id, { active: true });
+      if (tabs[0].windowId) {
+        await browser.windows.update(tabs[0].windowId, { focused: true });
+      }
+    } else {
+      await browser.tabs.create({ url: EHR_URL });
+    }
+  });
 
   browser.runtime.onMessage.addListener(
     (
