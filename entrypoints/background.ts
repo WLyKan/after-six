@@ -17,7 +17,7 @@ export default defineBackground(() => {
         console.log('[加班统计] 收到消息请求:', request);
         console.log('[加班统计] 发送者:', sender);
 
-        handleGetOvertimeStats(request.staffId)
+        handleGetOvertimeStats(request.staffId, request.year, request.month)
           .then((result) => {
             console.log('[加班统计] 处理完成，返回结果:', result);
             sendResponse(result);
@@ -64,7 +64,7 @@ async function fetchWithConcurrency(
   return results;
 }
 
-async function handleGetOvertimeStats(staffId?: string): Promise<MessageResponse> {
+async function handleGetOvertimeStats(staffId?: string, reqYear?: number, reqMonth?: number): Promise<MessageResponse> {
   try {
     console.log('[加班统计] 开始处理请求，staffId:', staffId);
 
@@ -77,13 +77,16 @@ async function handleGetOvertimeStats(staffId?: string): Promise<MessageResponse
     }
 
     const now = new Date();
-    const year = now.getFullYear();
-    const month = now.getMonth() + 1;
+    const year = reqYear ?? now.getFullYear();
+    const month = reqMonth ?? (now.getMonth() + 1);
+
+    // 如果请求的是当前月份，只取到今天；否则取整月
+    const isCurrentMonth = year === now.getFullYear() && month === now.getMonth() + 1;
     const today = now.getDate();
+    const allDays = getDaysArray(year, month);
+    const days = isCurrentMonth ? allDays.filter((_, index) => index < today) : allDays;
 
-    console.log(`[加班统计] 当前日期: ${year}年${month}月${today}日`);
-
-    const days = getDaysArray(year, month).filter((_, index) => index < today);
+    console.log(`[加班统计] 请求日期: ${year}年${month}月, 当前月份: ${isCurrentMonth}, 需获取 ${days.length} 天`);
     console.log(`[加班统计] 需要获取 ${days.length} 天的数据:`, days);
 
     const results = await fetchWithConcurrency(staffId, days);

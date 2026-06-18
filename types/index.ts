@@ -40,6 +40,8 @@ export interface OvertimeStats {
 export interface MessageRequest {
   action: 'getOvertimeStats';
   staffId?: string;
+  year?: number;
+  month?: number;
 }
 
 export interface MessageResponse {
