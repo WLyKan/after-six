@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>After Six — Chrono Systems Logo Generator</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #080c18;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+    font-family: monospace;
+    color: #c8d6e5;
+  }
+  .row { display: flex; gap: 32px; align-items: flex-end; flex-wrap: wrap; justify-content: center; }
+  canvas { display: block; }
+  .label {
+    text-align: center;
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: #3a4f7a;
+    margin-top: 12px;
+  }
+  .container { margin: 40px 0; text-align: center; }
+  .title {
+    font-size: 13px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: #3a4f7a;
+    margin-bottom: 40px;
+  }
+  .download-btn {
+    display: inline-block;
+    margin-top: 32px;
+    padding: 8px 20px;
+    border: 1px solid #1e2a42;
+    color: #5b7fff;
+    font-family: monospace;
+    font-size: 11px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    cursor: pointer;
+    background: transparent;
+    transition: all 0.2s;
+  }
+  .download-btn:hover { border-color: #5b7fff; color: #c8d6e5; }
+</style>
+</head>
+<body>
+
+<div class="title">Chrono Systems — After Six Logo Variants</div>
+
+<div class="row">
+  <div class="container">
+    <canvas id="main1024" width="1024" height="1024"></canvas>
+    <div class="label">1024 px</div>
+  </div>
+  <div class="container">
+    <canvas id="icon128" width="128" height="128"></canvas>
+    <div class="label">128 px</div>
+  </div>
+  <div class="container">
+    <canvas id="icon48" width="48" height="48"></canvas>
+    <div class="label">48 px</div>
+  </div>
+  <div class="container">
+    <canvas id="icon16" width="16" height="16"></canvas>
+    <div class="label">16 px</div>
+  </div>
+</div>
+
+<div style="display:flex; gap:12px; flex-wrap:wrap; justify-content:center;">
+  <button class="download-btn" onclick="download(1024)">Download 1024px</button>
+  <button class="download-btn" onclick="download(128)">Download 128px</button>
+  <button class="download-btn" onclick="download(48)">Download 48px</button>
+  <button class="download-btn" onclick="download(16)">Download 16px</button>
+</div>
+
+<script>
+function drawLogo(canvasId, size) {
+  const canvas = document.getElementById(canvasId);
+  const ctx = canvas.getContext('2d');
+  const W = size, H = size;
+  const cx = W / 2, cy = H / 2;
+
+  // Scale factor — all proportions relative to a 1024 base
+  const s = size / 1024;
+
+  // Palette
+  const BG = '#080c18';
+  const FROST = '#c8d6e5';
+  const INDIGO = '#5b7fff';
+  const SLATE = '#3a4f7a';
+  const DIM = '#1e2a42';
+  const WARM = '#ff6b35';
+
+  function deg(d) { return d * Math.PI / 180; }
+  function polar(r, angleDeg) {
+    const a = deg(angleDeg - 90);
+    return [cx + r * Math.cos(a), cy + r * Math.sin(a)];
+  }
+
+  // Clear
+  ctx.fillStyle = BG;
+  ctx.fillRect(0, 0, W, H);
+
+  // Subtle radial glow
+  const glow = ctx.createRadialGradient(cx, cy, 0, cx, cy, 340 * s);
+  glow.addColorStop(0, 'rgba(91, 127, 255, 0.05)');
+  glow.addColorStop(0.6, 'rgba(91, 127, 255, 0.015)');
+  glow.addColorStop(1, 'rgba(8, 12, 24, 0)');
+  ctx.fillStyle = glow;
+  ctx.fillRect(0, 0, W, H);
+
+  const outerR = 340 * s;
+
+  // === Outer ring — segmented with gaps at cardinals ===
+  const gapHalf = 5.5;
+  const segments = [
+    [gapHalf, 90 - gapHalf],
+    [90 + gapHalf, 180 - gapHalf],
+    [180 + gapHalf, 270 - gapHalf],
+    [270 + gapHalf, 360 - gapHalf],
+  ];
+
+  // Draw each arc with gradient — upper arcs brighter, lower arcs warmer
+  segments.forEach(([start, end], i) => {
+    const grad = ctx.createLinearGradient(
+      ...polar(outerR, start), ...polar(outerR, end)
+    );
+    if (i === 0 || i === 3) {
+      // Upper arcs: frost to frost-slate
+      grad.addColorStop(0, FROST);
+      grad.addColorStop(0.5, '#e0e8f0');
+      grad.addColorStop(1, FROST);
+    } else {
+      // Lower arcs: slightly warmer, less bright
+      grad.addColorStop(0, '#a8b8c8');
+      grad.addColorStop(0.5, '#b0c0d0');
+      grad.addColorStop(1, '#8090a8');
+    }
+
+    ctx.beginPath();
+    ctx.arc(cx, cy, outerR, deg(start - 90), deg(end - 90));
+    ctx.strokeStyle = grad;
+    ctx.lineWidth = 18 * s;
+    ctx.lineCap = 'butt';
+    ctx.stroke();
+  });
+
+  // === Fine ticks (every 30° except cardinals) ===
+  for (let d = 0; d < 360; d += 30) {
+    if (d % 90 === 0) continue;
+    const [x1, y1] = polar(outerR + 8 * s, d);
+    const [x2, y2] = polar(outerR + 28 * s, d);
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2, y2);
+    ctx.strokeStyle = SLATE;
+    ctx.lineWidth = 2.5 * s;
+    ctx.lineCap = 'round';
+    ctx.stroke();
+  }
+
+  // === Ultra-fine ticks (every 10°) ===
+  for (let d = 0; d < 360; d += 10) {
+    if (d % 30 === 0) continue;
+    const [x1, y1] = polar(outerR + 12 * s, d);
+    const [x2, y2] = polar(outerR + 24 * s, d);
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2, y2);
+    ctx.strokeStyle = DIM;
+    ctx.lineWidth = 1.2 * s;
+    ctx.stroke();
+  }
+
+  // === Cardinal ticks (12, 3, 6, 9) — thicker, longer ===
+  for (let d = 0; d < 360; d += 90) {
+    const [x1, y1] = polar(outerR + 2 * s, d);
+    const [x2, y2] = polar(outerR + 32 * s, d);
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2, y2);
+    ctx.strokeStyle = FROST;
+    ctx.lineWidth = 5 * s;
+    ctx.lineCap = 'round';
+    ctx.stroke();
+  }
+
+  // === Inner concentric rings ===
+  [260, 200, 140].forEach((r, i) => {
+    ctx.beginPath();
+    ctx.arc(cx, cy, r * s, 0, Math.PI * 2);
+    ctx.strokeStyle = i === 0 ? SLATE : DIM;
+    ctx.lineWidth = (1.2 - i * 0.3) * s;
+    ctx.globalAlpha = 0.35 - i * 0.08;
+    ctx.stroke();
+  });
+  ctx.globalAlpha = 1;
+
+  // === Cross-hair grid (very subtle) ===
+  ctx.globalAlpha = 0.1;
+  ctx.lineWidth = 0.7 * s;
+  ctx.strokeStyle = DIM;
+  ctx.beginPath();
+  ctx.moveTo(cx - outerR - 40 * s, cy);
+  ctx.lineTo(cx + outerR + 40 * s, cy);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(cx, cy - outerR - 40 * s);
+  ctx.lineTo(cx, cy + outerR + 40 * s);
+  ctx.stroke();
+  ctx.globalAlpha = 1;
+
+  // === Radial guidelines (very faint) ===
+  ctx.globalAlpha = 0.05;
+  for (let d = 0; d < 360; d += 45) {
+    const [x1, y1] = polar(0, d);
+    const [x2, y2] = polar(outerR + 60 * s, d);
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2, y2);
+    ctx.strokeStyle = INDIGO;
+    ctx.lineWidth = 0.5 * s;
+    ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
+
+  // === Lower-half warm fill (after-six zone) — very subtle ===
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(cx, cy, outerR - 20 * s, deg(0), deg(180));
+  ctx.clip();
+  const warmFill = ctx.createLinearGradient(cx, cy, cx, cy + outerR);
+  warmFill.addColorStop(0, 'rgba(255, 107, 53, 0)');
+  warmFill.addColorStop(0.4, 'rgba(255, 107, 53, 0.02)');
+  warmFill.addColorStop(1, 'rgba(255, 107, 53, 0.06)');
+  ctx.fillStyle = warmFill;
+  ctx.fillRect(cx - outerR, cy, outerR * 2, outerR);
+  ctx.restore();
+
+  // === Clock hands ===
+  // Hour hand — pointing to 9 o'clock (270°)
+  const hourLen = 180 * s;
+  const [hx1, hy1] = polar(30 * s, 270);
+  const [hx2, hy2] = polar(hourLen, 270);
+
+  const hourGrad = ctx.createLinearGradient(hx1, hy1, hx2, hy2);
+  hourGrad.addColorStop(0, INDIGO);
+  hourGrad.addColorStop(1, FROST);
+
+  ctx.beginPath();
+  ctx.moveTo(hx1, hy1);
+  ctx.lineTo(hx2, hy2);
+  ctx.strokeStyle = hourGrad;
+  ctx.lineWidth = 8 * s;
+  ctx.lineCap = 'round';
+  ctx.stroke();
+
+  // Minute hand — pointing to 12 o'clock (0°)
+  const minLen = 260 * s;
+  const [mx1, my1] = polar(30 * s, 0);
+  const [mx2, my2] = polar(minLen, 0);
+
+  const minGrad = ctx.createLinearGradient(mx1, my1, mx2, my2);
+  minGrad.addColorStop(0, INDIGO);
+  minGrad.addColorStop(1, '#8fa8cc');
+
+  ctx.beginPath();
+  ctx.moveTo(mx1, my1);
+  ctx.lineTo(mx2, my2);
+  ctx.strokeStyle = minGrad;
+  ctx.lineWidth = 4 * s;
+  ctx.lineCap = 'round';
+  ctx.stroke();
+
+  // === Center dot with glow ===
+  // Glow
+  const dotGlow = ctx.createRadialGradient(cx, cy, 0, cx, cy, 20 * s);
+  dotGlow.addColorStop(0, 'rgba(91, 127, 255, 0.35)');
+  dotGlow.addColorStop(1, 'rgba(91, 127, 255, 0)');
+  ctx.fillStyle = dotGlow;
+  ctx.fillRect(cx - 20 * s, cy - 20 * s, 40 * s, 40 * s);
+  // Dot
+  ctx.beginPath();
+  ctx.arc(cx, cy, 8 * s, 0, Math.PI * 2);
+  ctx.fillStyle = INDIGO;
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(cx, cy, 3 * s, 0, Math.PI * 2);
+  ctx.fillStyle = BG;
+  ctx.fill();
+
+  // === Warm arc (after-six zone) — the conceptual heart ===
+  // Three layered arcs for depth
+  for (let i = 0; i < 3; i++) {
+    const r = outerR - (8 + i * 6) * s;
+    const a = [0.18, 0.10, 0.06][i];
+    const w = [3, 1.5, 1][i];
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, deg(5), deg(175));
+    ctx.strokeStyle = WARM;
+    ctx.lineWidth = w * s;
+    ctx.globalAlpha = a;
+    ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
+
+  // === "6" marker ===
+  ctx.font = `${Math.max(12, 16 * s)}px monospace`;
+  ctx.fillStyle = SLATE;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('6', cx, cy + outerR + 50 * s);
+
+  // === Corner registration marks ===
+  const cOff = 48 * s;
+  const cLen = 30 * s;
+  ctx.strokeStyle = DIM;
+  ctx.lineWidth = 1 * s;
+  ctx.globalAlpha = 0.4;
+
+  // Top-left
+  ctx.beginPath();
+  ctx.moveTo(cOff, cOff); ctx.lineTo(cOff + cLen, cOff);
+  ctx.moveTo(cOff, cOff); ctx.lineTo(cOff, cOff + cLen);
+  ctx.stroke();
+  // Top-right
+  ctx.beginPath();
+  ctx.moveTo(W - cOff, cOff); ctx.lineTo(W - cOff - cLen, cOff);
+  ctx.moveTo(W - cOff, cOff); ctx.lineTo(W - cOff, cOff + cLen);
+  ctx.stroke();
+  // Bottom-left
+  ctx.beginPath();
+  ctx.moveTo(cOff, H - cOff); ctx.lineTo(cOff + cLen, H - cOff);
+  ctx.moveTo(cOff, H - cOff); ctx.lineTo(cOff, H - cOff - cLen);
+  ctx.stroke();
+  // Bottom-right
+  ctx.beginPath();
+  ctx.moveTo(W - cOff, H - cOff); ctx.lineTo(W - cOff - cLen, H - cOff);
+  ctx.moveTo(W - cOff, H - cOff); ctx.lineTo(W - cOff, H - cOff - cLen);
+  ctx.stroke();
+
+  ctx.globalAlpha = 1;
+
+  // === Outer halo ===
+  ctx.beginPath();
+  ctx.arc(cx, cy, outerR + 50 * s, 0, Math.PI * 2);
+  ctx.strokeStyle = DIM;
+  ctx.lineWidth = 0.5 * s;
+  ctx.globalAlpha = 0.15;
+  ctx.stroke();
+  ctx.globalAlpha = 1;
+}
+
+// Render all sizes
+drawLogo('main1024', 1024);
+drawLogo('icon128', 128);
+drawLogo('icon48', 48);
+drawLogo('icon16', 16);
+
+// Download
+function download(size) {
+  // Re-render to a fresh offscreen canvas at the right size
+  const offscreen = document.createElement('canvas');
+  offscreen.width = size;
+  offscreen.height = size;
+
+  // Copy rendering logic
+  const tmpCanvas = document.createElement('canvas');
+  tmpCanvas.width = size;
+  tmpCanvas.height = size;
+  document.body.appendChild(tmpCanvas);
+  tmpCanvas.id = 'tmpExport';
+
+  drawLogo('tmpExport', size);
+
+  const link = document.createElement('a');
+  link.download = 'after-six-logo-' + size + 'px.png';
+  link.href = tmpCanvas.toDataURL('image/png');
+  link.click();
+
+  tmpCanvas.remove();
+}
+</script>
+</body>
+</html>
