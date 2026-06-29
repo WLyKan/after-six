@@ -36,13 +36,28 @@ export interface OvertimeStats {
   detailList: OvertimeDetail[];
 }
 
+export interface AttendanceMonthCache {
+  staffId: string;
+  year: number;
+  month: number;
+  records: AttendanceRecord[];
+  fetchedAt: string;
+  source: 'ehr';
+}
+
 // 消息类型
-export interface MessageRequest {
+export interface GetOvertimeStatsRequest {
   action: 'getOvertimeStats';
   staffId?: string;
   year?: number;
   month?: number;
 }
+
+export interface OpenRecordsPageRequest {
+  action: 'openRecordsPage';
+}
+
+export type MessageRequest = GetOvertimeStatsRequest | OpenRecordsPageRequest;
 
 export interface MessageResponse {
   success: boolean;

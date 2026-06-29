@@ -80,6 +80,11 @@ async function initWithContainer(doc: Document, container: HTMLElement, iframe: 
   }
 
   console.log('[加班统计] staff_id:', staffId);
+  try {
+    await browser.storage.local.set({ staffId });
+  } catch (error) {
+    console.warn('[加班统计] 缓存 staff_id 失败:', error);
+  }
 
   // 首次加载当前月份
   await fetchAndDisplay(doc, staffId);
@@ -294,13 +299,39 @@ function setupMonthChangeListener(doc: Document, staffId: string, iframe: HTMLIF
 function appendSummary(doc: Document, text: string): HTMLElement {
   const div = doc.createElement('div');
   div.className = 'overtime-stats-summary';
-  div.textContent = text;
   div.style.cssText = `
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
     font-size: 14px;
     padding: 8px 0;
     color: #333;
     text-align: left;
   `;
+
+  const textEl = doc.createElement('span');
+  textEl.textContent = text;
+
+  const button = doc.createElement('button');
+  button.type = 'button';
+  button.textContent = '查看详情';
+  button.style.cssText = `
+    border: 1px solid #d9d9d9;
+    border-radius: 4px;
+    background: #fff;
+    color: #1677ff;
+    cursor: pointer;
+    font-size: 13px;
+    line-height: 1.4;
+    padding: 3px 10px;
+    white-space: nowrap;
+  `;
+  button.addEventListener('click', () => {
+    browser.runtime.sendMessage({ action: 'openRecordsPage' });
+  });
+
+  div.append(textEl, button);
 
   const container = findContainer(doc);
   if (container) {
