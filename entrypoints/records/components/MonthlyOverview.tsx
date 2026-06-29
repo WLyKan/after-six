@@ -1,13 +1,14 @@
 import { useEffect, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
 import { Badge } from './ui/badge';
 import { Alert, AlertDescription } from './ui/alert';
-import { Plus, Edit, Trash2, Download, Trophy, Zap, Star, TrendingUp, Coffee } from 'lucide-react';
+import { Plus, Edit, Trash2, Download, Trophy, Zap, Star, TrendingUp, Coffee, RefreshCw } from 'lucide-react';
 import { OvertimeRecordForm } from './OvertimeRecordForm';
-import { achievements, AchievementCard } from './AchievementSystem';
+import { AchievementCard } from './AchievementSystem';
+import { useAchievementState } from '../hooks/useAchievementState';
+import { MonthSelect } from './MonthSelect';
 import type { MessageResponse, OvertimeDetail, OvertimeStats } from '../../../types';
 
 interface OvertimeRecord {
@@ -24,16 +25,6 @@ interface OvertimeRecord {
 function getCurrentMonthValue() {
   const now = new Date();
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-}
-
-function getMonthOptions() {
-  const now = new Date();
-  return Array.from({ length: 12 }, (_, index) => {
-    const date = new Date(now.getFullYear(), now.getMonth() - index, 1);
-    const value = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
-    const label = `${date.getFullYear()}年${date.getMonth() + 1}月`;
-    return { value, label };
-  });
 }
 
 function toHours(time: number) {
@@ -60,6 +51,13 @@ function mapDetailToRecord(detail: OvertimeDetail): OvertimeRecord {
   };
 }
 
+function formatFetchedAt(value?: string) {
+  if (!value) return '未知时间';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')} ${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
+}
+
 export function MonthlyOverview() {
   const [selectedMonth, setSelectedMonth] = useState(getCurrentMonthValue);
   const [isFormOpen, setIsFormOpen] = useState(false);
@@ -68,75 +66,78 @@ export function MonthlyOverview() {
   const [overtimeRecords, setOvertimeRecords] = useState<OvertimeRecord[]>([]);
   const [statusText, setStatusText] = useState('正在读取插件缓存...');
   const [isLoading, setIsLoading] = useState(true);
-  const monthOptions = getMonthOptions();
+  const achievementState = useAchievementState();
+  const achievements = achievementState.achievements;
+
+  async function loadStats(forceRefresh = false, isCancelled = () => false) {
+    setIsLoading(true);
+    setStatusText(forceRefresh ? '正在刷新线上 EHR 数据...' : '正在加载 EHR 加班统计...');
+
+    try {
+      if (
+        typeof browser === 'undefined' ||
+        !browser.storage?.local ||
+        !browser.runtime?.sendMessage
+      ) {
+        if (!isCancelled()) {
+          setStats(null);
+          setOvertimeRecords([]);
+          setStatusText('当前页面未运行在插件环境中，请从 EHR 汇总行打开详情页。');
+        }
+        return;
+      }
+
+      const cached = await browser.storage.local.get('staffId');
+      const staffId = cached.staffId;
+
+      if (!staffId || typeof staffId !== 'string') {
+        if (!isCancelled()) {
+          setStats(null);
+          setOvertimeRecords([]);
+          setStatusText('请先打开 EHR 考勤页面完成一次统计加载。');
+        }
+        return;
+      }
+
+      const [year, month] = selectedMonth.split('-').map(Number);
+      const response = await browser.runtime.sendMessage({
+        action: 'getOvertimeStats',
+        staffId,
+        year,
+        month,
+        forceRefresh,
+      }) as MessageResponse;
+
+      if (isCancelled()) return;
+
+      if (response.success && response.data) {
+        const records = response.data.detailList
+          .filter((detail) => detail.sum > 0)
+          .map(mapDetailToRecord);
+        const sourceText = response.cache?.cacheHit ? '本地缓存' : 'EHR 线上同步';
+        const fetchedAtText = formatFetchedAt(response.cache?.fetchedAt);
+        setStats(response.data);
+        setOvertimeRecords(records);
+        setStatusText(`${sourceText}，更新时间：${fetchedAtText}${records.length > 0 ? '' : '，当前月份暂无加班记录。'}`);
+      } else {
+        setStats(null);
+        setOvertimeRecords([]);
+        setStatusText(response.error || '数据获取失败，请回到 EHR 页面刷新后重试。');
+      }
+    } catch (error) {
+      if (!isCancelled()) {
+        setStats(null);
+        setOvertimeRecords([]);
+        setStatusText(error instanceof Error ? error.message : '数据获取失败，请稍后重试。');
+      }
+    } finally {
+      if (!isCancelled()) setIsLoading(false);
+    }
+  }
 
   useEffect(() => {
     let cancelled = false;
-
-    async function loadStats() {
-      setIsLoading(true);
-      setStatusText('正在加载 EHR 加班统计...');
-
-      try {
-        if (
-          typeof browser === 'undefined' ||
-          !browser.storage?.local ||
-          !browser.runtime?.sendMessage
-        ) {
-          if (!cancelled) {
-            setStats(null);
-            setOvertimeRecords([]);
-            setStatusText('当前页面未运行在插件环境中，请从 EHR 汇总行打开详情页。');
-          }
-          return;
-        }
-
-        const cached = await browser.storage.local.get('staffId');
-        const staffId = cached.staffId;
-
-        if (!staffId || typeof staffId !== 'string') {
-          if (!cancelled) {
-            setStats(null);
-            setOvertimeRecords([]);
-            setStatusText('请先打开 EHR 考勤页面完成一次统计加载。');
-          }
-          return;
-        }
-
-        const [year, month] = selectedMonth.split('-').map(Number);
-        const response = await browser.runtime.sendMessage({
-          action: 'getOvertimeStats',
-          staffId,
-          year,
-          month,
-        }) as MessageResponse;
-
-        if (cancelled) return;
-
-        if (response.success && response.data) {
-          const records = response.data.detailList
-            .filter((detail) => detail.sum > 0)
-            .map(mapDetailToRecord);
-          setStats(response.data);
-          setOvertimeRecords(records);
-          setStatusText(records.length > 0 ? '已同步 EHR 统计数据。' : '当前月份暂无加班记录。');
-        } else {
-          setStats(null);
-          setOvertimeRecords([]);
-          setStatusText(response.error || '数据获取失败，请回到 EHR 页面刷新后重试。');
-        }
-      } catch (error) {
-        if (!cancelled) {
-          setStats(null);
-          setOvertimeRecords([]);
-          setStatusText(error instanceof Error ? error.message : '数据获取失败，请稍后重试。');
-        }
-      } finally {
-        if (!cancelled) setIsLoading(false);
-      }
-    }
-
-    loadStats();
+    loadStats(false, () => cancelled);
 
     return () => {
       cancelled = true;
@@ -218,16 +219,11 @@ export function MonthlyOverview() {
       {/* 头部统计和操作 */}
       <div className="flex items-center justify-between flex-wrap gap-4">
         <div className="flex items-center gap-4 flex-wrap">
-          <Select value={selectedMonth} onValueChange={setSelectedMonth}>
-            <SelectTrigger className="w-40">
-              <SelectValue placeholder="选择月份" />
-            </SelectTrigger>
-            <SelectContent>
-              {monthOptions.map((month) => (
-                <SelectItem key={month.value} value={month.value}>{month.label}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <MonthSelect
+            value={selectedMonth}
+            onValueChange={setSelectedMonth}
+            maxDate={new Date()}
+          />
           <div className="flex items-center gap-2 text-sm">
             <span className="text-muted-foreground">本月累计:</span>
             <span className="font-medium text-foreground">{totalOvertimeHours}小时</span>
@@ -237,6 +233,10 @@ export function MonthlyOverview() {
           </div>
         </div>
         <div className="flex gap-2">
+          <Button variant="outline" size="sm" onClick={() => loadStats(true)} disabled={isLoading}>
+            <RefreshCw className={`w-4 h-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
+            刷新线上数据
+          </Button>
           <Button variant="outline" size="sm" onClick={handleExportData}>
             <Download className="w-4 h-4 mr-2" />
             导出数据

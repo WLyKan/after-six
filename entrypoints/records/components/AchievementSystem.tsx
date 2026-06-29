@@ -38,7 +38,39 @@ export interface Achievement {
   isUnlocked: boolean;
 }
 
-export const achievements: Achievement[] = [
+export interface AchievementMetrics {
+  currentMonthHours: number;
+  maxWeekendHours: number;
+  totalHours: number;
+  totalRecords: number;
+  balancedMonthStreak: number;
+  latestReductionPercent: number;
+  hotStreakDays: number;
+  earlyPunchDays: number;
+  latePunchStreakDays: number;
+  hasNewYearRecord: boolean;
+}
+
+const defaultMetrics: AchievementMetrics = {
+  currentMonthHours: 0,
+  maxWeekendHours: 0,
+  totalHours: 0,
+  totalRecords: 0,
+  balancedMonthStreak: 0,
+  latestReductionPercent: 0,
+  hotStreakDays: 0,
+  earlyPunchDays: 0,
+  latePunchStreakDays: 0,
+  hasNewYearRecord: false,
+};
+
+function progress(value: number, target: number) {
+  if (target <= 0) return 0;
+  return Math.min(100, Math.max(0, Math.round((value / target) * 100)));
+}
+
+export function getAchievements(metrics: AchievementMetrics = defaultMetrics): Achievement[] {
+  return [
   // 工作成就
   {
     id: 'workaholic',
@@ -48,8 +80,8 @@ export const achievements: Achievement[] = [
     category: 'work',
     rarity: 'epic',
     condition: { type: 'overtime_hours', value: 40, period: 'month' },
-    isUnlocked: false,
-    progress: 0
+    isUnlocked: metrics.currentMonthHours >= 40,
+    progress: progress(metrics.currentMonthHours, 40)
   },
   {
     id: 'night_owl',
@@ -59,8 +91,8 @@ export const achievements: Achievement[] = [
     category: 'work',
     rarity: 'rare',
     condition: { type: 'streak_days', value: 7 },
-    isUnlocked: false,
-    progress: 0
+    isUnlocked: metrics.latePunchStreakDays >= 7,
+    progress: progress(metrics.latePunchStreakDays, 7)
   },
   {
     id: 'early_bird',
@@ -70,9 +102,8 @@ export const achievements: Achievement[] = [
     category: 'work',
     rarity: 'common',
     condition: { type: 'streak_days', value: 5 },
-    isUnlocked: true,
-    unlockedAt: '2025-01-10',
-    progress: 100
+    isUnlocked: metrics.earlyPunchDays >= 5,
+    progress: progress(metrics.earlyPunchDays, 5)
   },
   {
     id: 'weekend_warrior',
@@ -82,8 +113,8 @@ export const achievements: Achievement[] = [
     category: 'work',
     rarity: 'rare',
     condition: { type: 'overtime_hours', value: 16, period: 'month' },
-    isUnlocked: false,
-    progress: 75
+    isUnlocked: metrics.maxWeekendHours >= 16,
+    progress: progress(metrics.maxWeekendHours, 16)
   },
 
   // 平衡成就
@@ -95,8 +126,8 @@ export const achievements: Achievement[] = [
     category: 'balance',
     rarity: 'epic',
     condition: { type: 'monthly_balance', value: 20, period: 'streak' },
-    isUnlocked: false,
-    progress: 33
+    isUnlocked: metrics.balancedMonthStreak >= 3,
+    progress: progress(metrics.balancedMonthStreak, 3)
   },
   {
     id: 'efficiency_expert',
@@ -106,9 +137,8 @@ export const achievements: Achievement[] = [
     category: 'balance',
     rarity: 'rare',
     condition: { type: 'efficiency', value: 50 },
-    isUnlocked: true,
-    unlockedAt: '2024-12-31',
-    progress: 100
+    isUnlocked: metrics.latestReductionPercent >= 50,
+    progress: progress(metrics.latestReductionPercent, 50)
   },
 
   // 里程碑成就
@@ -120,9 +150,8 @@ export const achievements: Achievement[] = [
     category: 'milestone',
     rarity: 'rare',
     condition: { type: 'overtime_hours', value: 100, period: 'total' },
-    isUnlocked: true,
-    unlockedAt: '2024-11-15',
-    progress: 100
+    isUnlocked: metrics.totalHours >= 100,
+    progress: progress(metrics.totalHours, 100)
   },
   {
     id: 'record_keeper',
@@ -132,9 +161,8 @@ export const achievements: Achievement[] = [
     category: 'milestone',
     rarity: 'common',
     condition: { type: 'total_records', value: 50 },
-    isUnlocked: true,
-    unlockedAt: '2024-12-20',
-    progress: 100
+    isUnlocked: metrics.totalRecords >= 50,
+    progress: progress(metrics.totalRecords, 50)
   },
   {
     id: 'marathon_runner',
@@ -144,8 +172,8 @@ export const achievements: Achievement[] = [
     category: 'milestone',
     rarity: 'legendary',
     condition: { type: 'overtime_hours', value: 500, period: 'total' },
-    isUnlocked: false,
-    progress: 77
+    isUnlocked: metrics.totalHours >= 500,
+    progress: progress(metrics.totalHours, 500)
   },
 
   // 连击成就
@@ -157,8 +185,8 @@ export const achievements: Achievement[] = [
     category: 'streak',
     rarity: 'epic',
     condition: { type: 'streak_days', value: 15 },
-    isUnlocked: false,
-    progress: 60
+    isUnlocked: metrics.hotStreakDays >= 15,
+    progress: progress(metrics.hotStreakDays, 15)
   },
 
   // 特殊成就
@@ -170,11 +198,13 @@ export const achievements: Achievement[] = [
     category: 'special',
     rarity: 'legendary',
     condition: { type: 'special', value: 1 },
-    isUnlocked: true,
-    unlockedAt: '2025-01-01',
-    progress: 100
+    isUnlocked: metrics.hasNewYearRecord,
+    progress: metrics.hasNewYearRecord ? 100 : 0
   }
-];
+  ];
+}
+
+export const achievements: Achievement[] = getAchievements();
 
 export function AchievementCard({ achievement }: { achievement: Achievement }) {
   const getRarityColor = (rarity: string) => {
@@ -289,12 +319,12 @@ export function AchievementCard({ achievement }: { achievement: Achievement }) {
   );
 }
 
-export function AchievementSummary() {
-  const unlockedCount = achievements.filter(a => a.isUnlocked).length;
-  const totalCount = achievements.length;
+export function AchievementSummary({ items = achievements }: { items?: Achievement[] }) {
+  const unlockedCount = items.filter(a => a.isUnlocked).length;
+  const totalCount = items.length;
   const completionRate = Math.round((unlockedCount / totalCount) * 100);
   
-  const rarityStats = achievements.reduce((acc, achievement) => {
+  const rarityStats = items.reduce((acc, achievement) => {
     if (achievement.isUnlocked) {
       acc[achievement.rarity] = (acc[achievement.rarity] || 0) + 1;
     }

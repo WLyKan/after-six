@@ -7,9 +7,11 @@ import { HistoryComparison } from './components/HistoryComparison';
 import { CompensatoryLeave } from './components/CompensatoryLeave';
 import { SettingsBackup } from './components/SettingsBackup';
 import { Calendar, BarChart3, Clock, Settings, Trophy, Star, Crown } from 'lucide-react';
-import { achievements } from './components/AchievementSystem';
+import { useAchievementState } from './hooks/useAchievementState';
 
 export default function App() {
+  const achievementState = useAchievementState();
+  const achievements = achievementState.achievements;
   // 计算用户统计
   const unlockedAchievements = achievements.filter(a => a.isUnlocked).length;
   const totalAchievements = achievements.length;

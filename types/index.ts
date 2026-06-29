@@ -51,6 +51,7 @@ export interface GetOvertimeStatsRequest {
   staffId?: string;
   year?: number;
   month?: number;
+  forceRefresh?: boolean;
 }
 
 export interface OpenRecordsPageRequest {
@@ -62,5 +63,10 @@ export type MessageRequest = GetOvertimeStatsRequest | OpenRecordsPageRequest;
 export interface MessageResponse {
   success: boolean;
   data?: OvertimeStats;
+  cache?: {
+    cacheHit: boolean;
+    fetchedAt?: string;
+    cacheKey?: string;
+  };
   error?: string;
 }

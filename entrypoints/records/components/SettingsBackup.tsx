@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -7,22 +7,84 @@ import { Alert, AlertDescription } from './ui/alert';
 import { Progress } from './ui/progress';
 import { Separator } from './ui/separator';
 import { Download, Upload, FileText, Database, Shield, AlertTriangle, CheckCircle } from 'lucide-react';
+import { getAttendanceHistory, getCachedAttendanceMonths, type AttendanceHistoryMonth } from '../../../utils/monthlyAttendance';
+import type { AttendanceMonthCache } from '../../../types';
+
+function downloadText(filename: string, content: string, type: string) {
+  const blob = new Blob([content], { type });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+function toCsv(history: AttendanceHistoryMonth[]) {
+  const header = ['月份', '总加班小时', '工作日加班小时', '周末加班小时', '记录数', '缓存更新时间'];
+  const rows = history.map((item) => [
+    item.month,
+    item.hours,
+    item.workdayHours,
+    item.weekendHours,
+    item.recordCount,
+    item.fetchedAt,
+  ]);
+  return [header, ...rows]
+    .map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(','))
+    .join('\n');
+}
 
 export function SettingsBackup() {
   const [isExporting, setIsExporting] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
   const [importProgress, setImportProgress] = useState(0);
-  const [exportFormat, setExportFormat] = useState<'json' | 'csv'>('json');
+  const [cacheMonths, setCacheMonths] = useState<AttendanceMonthCache[]>([]);
+  const [history, setHistory] = useState<AttendanceHistoryMonth[]>([]);
+  const [statusText, setStatusText] = useState('正在读取本地缓存...');
+
+  useEffect(() => {
+    async function loadSummary() {
+      try {
+        if (typeof browser === 'undefined' || !browser.storage?.local) {
+          setStatusText('当前页面未运行在插件环境中，请从 EHR 汇总行打开详情页。');
+          return;
+        }
+        const cached = await browser.storage.local.get('staffId');
+        const staffId = typeof cached.staffId === 'string' ? cached.staffId : undefined;
+        const months = await getCachedAttendanceMonths(browser.storage.local, staffId);
+        setCacheMonths(months);
+        setHistory(getAttendanceHistory(months));
+        setStatusText(months.length > 0 ? `已读取 ${months.length} 个月缓存。` : '暂无可导出的本地缓存。');
+      } catch (error) {
+        setStatusText(error instanceof Error ? error.message : '缓存读取失败。');
+      }
+    }
+
+    loadSummary();
+  }, []);
 
   const handleExportData = async (format: 'json' | 'csv') => {
     setIsExporting(true);
-    
-    // 模拟导出过程
-    setTimeout(() => {
-      // 实际实现中这里会生成并下载文件
-      console.log(`导出${format.toUpperCase()}格式数据`);
+    try {
+      const timestamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
+      if (format === 'json') {
+        downloadText(
+          `after-six-cache-${timestamp}.json`,
+          JSON.stringify({ exportedAt: new Date().toISOString(), months: cacheMonths }, null, 2),
+          'application/json;charset=utf-8'
+        );
+      } else {
+        downloadText(
+          `after-six-history-${timestamp}.csv`,
+          `\ufeff${toCsv(history)}`,
+          'text/csv;charset=utf-8'
+        );
+      }
+      setStatusText(`已导出 ${format.toUpperCase()} 数据。`);
+    } finally {
       setIsExporting(false);
-    }, 2000);
+    }
   };
 
   const handleImportData = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -49,12 +111,15 @@ export function SettingsBackup() {
   };
 
   const getDataSummary = () => {
-    // 模拟数据统计
+    const lastBackup = cacheMonths
+      .map((item) => item.fetchedAt)
+      .sort()
+      .at(-1);
     return {
-      totalRecords: 156,
-      totalOvertimeHours: 387.5,
-      compensatoryHours: 42,
-      lastBackup: '2025-01-15'
+      totalRecords: history.reduce((sum, item) => sum + item.recordCount, 0),
+      totalOvertimeHours: Number(history.reduce((sum, item) => sum + item.hours, 0).toFixed(1)),
+      cachedMonths: cacheMonths.length,
+      lastBackup: lastBackup ? lastBackup.slice(0, 10) : '-',
     };
   };
 
@@ -81,8 +146,8 @@ export function SettingsBackup() {
               <p className="text-sm text-muted-foreground">累计加班</p>
             </div>
             <div className="text-center p-3 bg-muted/30 rounded-lg">
-              <p className="text-2xl font-bold text-primary">{dataSummary.compensatoryHours}h</p>
-              <p className="text-sm text-muted-foreground">调休余额</p>
+              <p className="text-2xl font-bold text-primary">{dataSummary.cachedMonths}</p>
+              <p className="text-sm text-muted-foreground">缓存月份</p>
             </div>
             <div className="text-center p-3 bg-muted/30 rounded-lg">
               <p className="text-sm font-medium text-primary">{dataSummary.lastBackup}</p>
@@ -102,7 +167,7 @@ export function SettingsBackup() {
         </CardHeader>
         <CardContent className="space-y-4">
           <p className="text-sm text-muted-foreground">
-            将您的加班记录和调休数据导出为备份文件，便于数据迁移或长期保存。
+            {statusText}
           </p>
           
           <div className="flex flex-col sm:flex-row gap-3">

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
@@ -20,61 +20,134 @@ import {
   Plane,
   Home,
   Sparkles,
-  Gift
+  Gift,
+  Trash2
 } from 'lucide-react';
-
-interface CompensatoryRecord {
-  id: string;
-  sourceMonth: string;
-  hours: number;
-  usedHours: number;
-  notes: string;
-  expiryDate: string;
-  status: 'active' | 'expired' | 'used';
-}
+import {
+  buildCompensatoryLeaveRecords,
+  createBalanceCalibrationUsage,
+  createCompensatoryUsage,
+  getCompensatoryUsageStorageKey,
+  normalizeCompensatoryUsages,
+  type CompensatoryLeaveRecord,
+  type CompensatoryLeaveUsage
+} from '../../../utils/compensatoryLeave';
+import { getAttendanceHistory, getCachedAttendanceMonths, type AttendanceHistoryMonth } from '../../../utils/monthlyAttendance';
 
 export function CompensatoryLeave() {
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [isRulesDialogOpen, setIsRulesDialogOpen] = useState(false);
+  const [compensatoryRecords, setCompensatoryRecords] = useState<CompensatoryLeaveRecord[]>([]);
+  const [usageRecords, setUsageRecords] = useState<CompensatoryLeaveUsage[]>([]);
+  const [historyData, setHistoryData] = useState<AttendanceHistoryMonth[]>([]);
+  const [usageStorageKey, setUsageStorageKey] = useState('');
+  const [statusText, setStatusText] = useState('正在读取历史加班缓存...');
+  const [formData, setFormData] = useState({
+    usedDate: new Date().toISOString().slice(0, 10),
+    hours: '',
+    note: '',
+  });
+  const [formError, setFormError] = useState('');
 
-  // 模拟调休记录数据
-  const compensatoryRecords: CompensatoryRecord[] = [
-    {
-      id: '1',
-      sourceMonth: '2024-11',
-      hours: 28,
-      usedHours: 16,
-      notes: '项目加班产生',
-      expiryDate: '2025-05-31',
-      status: 'active'
-    },
-    {
-      id: '2',
-      sourceMonth: '2024-12',
-      hours: 12,
-      usedHours: 0,
-      notes: '年末冲刺加班',
-      expiryDate: '2025-06-30',
-      status: 'active'
-    },
-    {
-      id: '3',
-      sourceMonth: '2024-10',
-      hours: 18,
-      usedHours: 18,
-      notes: '产品发布加班',
-      expiryDate: '2025-04-30',
-      status: 'used'
+  useEffect(() => {
+    async function loadCompensatoryRecords() {
+      try {
+        if (
+          typeof browser === 'undefined' ||
+          !browser.storage?.local
+        ) {
+          setCompensatoryRecords([]);
+          setStatusText('当前页面未运行在插件环境中，请从 EHR 汇总行打开详情页。');
+          return;
+        }
+
+        const cached = await browser.storage.local.get('staffId');
+        const staffId = typeof cached.staffId === 'string' ? cached.staffId : undefined;
+        const storageKey = getCompensatoryUsageStorageKey(staffId ?? 'default');
+        const months = await getCachedAttendanceMonths(browser.storage.local, staffId);
+        const history = getAttendanceHistory(months);
+        const storedUsages = await browser.storage.local.get(storageKey);
+        let usages = normalizeCompensatoryUsages(storedUsages[storageKey]);
+        let records = buildCompensatoryLeaveRecords(history, new Date(), usages);
+
+        if (history.length > 0 && usages.length === 0) {
+          const baseRecords = buildCompensatoryLeaveRecords(history);
+          const calibrationUsage = createBalanceCalibrationUsage(baseRecords);
+
+          if (calibrationUsage) {
+            usages = [calibrationUsage];
+            records = buildCompensatoryLeaveRecords(history, new Date(), usages);
+            await browser.storage.local.set({ [storageKey]: usages });
+          }
+        }
+
+        setUsageStorageKey(storageKey);
+        setHistoryData(history);
+        setUsageRecords(usages);
+        setCompensatoryRecords(records);
+        setStatusText(
+          history.length > 0
+            ? `已从 ${history.length} 个月历史缓存统计调休，已加载 ${usages.length} 条使用记录。`
+            : '暂无历史缓存，请先在月度总览查询月份数据。'
+        );
+      } catch (error) {
+        setCompensatoryRecords([]);
+        setStatusText(error instanceof Error ? error.message : '调休记录读取失败。');
+      }
     }
-  ];
 
-  const totalHours = compensatoryRecords.reduce((sum, record) => sum + record.hours, 0);
-  const usedHours = compensatoryRecords.reduce((sum, record) => sum + record.usedHours, 0);
-  const remainingHours = totalHours - usedHours;
-  const activeRecords = compensatoryRecords.filter(record => record.status === 'active');
-  const soonExpireHours = activeRecords
-    .filter(record => new Date(record.expiryDate) < new Date(Date.now() + 30 * 24 * 60 * 60 * 1000))
-    .reduce((sum, record) => sum + (record.hours - record.usedHours), 0);
+    loadCompensatoryRecords();
+  }, []);
+
+  const persistUsageRecords = async (nextUsages: CompensatoryLeaveUsage[]) => {
+    if (!usageStorageKey || typeof browser === 'undefined' || !browser.storage?.local) return;
+
+    await browser.storage.local.set({ [usageStorageKey]: nextUsages });
+    setUsageRecords(nextUsages);
+    setCompensatoryRecords(buildCompensatoryLeaveRecords(historyData, new Date(), nextUsages));
+    setStatusText(`已从 ${historyData.length} 个月历史缓存统计调休，已加载 ${nextUsages.length} 条使用记录。`);
+  };
+
+  const handleUseLeave = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setFormError('');
+
+    try {
+      const usage = createCompensatoryUsage({
+        records: compensatoryRecords,
+        existingUsages: usageRecords,
+        usedDate: formData.usedDate,
+        hours: Number(formData.hours),
+        note: formData.note.trim() || '使用调休',
+      });
+      const nextUsages = [...usageRecords, usage];
+
+      await persistUsageRecords(nextUsages);
+      setFormData({
+        usedDate: new Date().toISOString().slice(0, 10),
+        hours: '',
+        note: '',
+      });
+      setIsAddDialogOpen(false);
+    } catch (error) {
+      setFormError(error instanceof Error ? error.message : '调休使用记录保存失败。');
+    }
+  };
+
+  const handleDeleteUsage = async (usageId: string) => {
+    const nextUsages = usageRecords.filter((usage) => usage.id !== usageId);
+    await persistUsageRecords(nextUsages);
+  };
+
+  const totalHours = useMemo(() => compensatoryRecords.reduce((sum, record) => sum + record.hours, 0), [compensatoryRecords]);
+  const usedHours = useMemo(() => compensatoryRecords.reduce((sum, record) => sum + record.usedHours, 0), [compensatoryRecords]);
+  const remainingHours = useMemo(() => compensatoryRecords
+    .filter((record) => record.status === 'active')
+    .reduce((sum, record) => sum + (record.hours - record.usedHours), 0), [compensatoryRecords]);
+  const soonExpireHours = useMemo(() => compensatoryRecords
+    .filter(record => record.status === 'active')
+    .filter(record => new Date(`${record.expiryDate}T23:59:59`) < new Date(Date.now() + 30 * 24 * 60 * 60 * 1000))
+    .reduce((sum, record) => sum + (record.hours - record.usedHours), 0), [compensatoryRecords]);
 
   // 趣味化计算
   const vacationDays = Math.floor(remainingHours / 8);
@@ -277,7 +350,10 @@ export function CompensatoryLeave() {
 
       {/* 操作按钮 */}
       <div className="flex justify-between items-center">
-        <h3>调休记录</h3>
+        <div>
+          <h3>调休记录</h3>
+          <p className="text-sm text-muted-foreground">{statusText}</p>
+        </div>
         <div className="flex gap-2">
           <Dialog open={isRulesDialogOpen} onOpenChange={setIsRulesDialogOpen}>
             <DialogTrigger asChild>
@@ -294,16 +370,15 @@ export function CompensatoryLeave() {
                 <div>
                   <h4 className="font-medium mb-2">获得调休</h4>
                   <ul className="list-disc list-inside space-y-1 text-muted-foreground">
-                    <li>工作日加班：按1:1比例转换为调休</li>
-                    <li>周末加班：按1:1.5比例转换为调休</li>
-                    <li>法定节假日：按1:2比例转换为调休</li>
+                    <li>2025年9月之前，每月加班满30小时，可以换一天（7.5h）调休</li>
+                    <li>2025年9月起，每月加班满40小时，可以换一天（7.5h）调休</li>
+                    <li>每月加班工时不累计，次月清零</li>
                   </ul>
                 </div>
                 <div>
                   <h4 className="font-medium mb-2">使用期限</h4>
                   <ul className="list-disc list-inside space-y-1 text-muted-foreground">
-                    <li>调休时间自获得之日起6个月内有效</li>
-                    <li>超期未使用的调休将自动失效</li>
+                    <li>调休次年3月份清零</li>
                   </ul>
                 </div>
                 <div>
@@ -329,22 +404,41 @@ export function CompensatoryLeave() {
               <DialogHeader>
                 <DialogTitle>使用调休</DialogTitle>
               </DialogHeader>
-              <form className="space-y-4">
+              <form onSubmit={handleUseLeave} className="space-y-4">
                 <div className="space-y-2">
                   <Label htmlFor="useDate">使用日期</Label>
-                  <Input id="useDate" type="date" />
+                  <Input
+                    id="useDate"
+                    type="date"
+                    value={formData.usedDate}
+                    onChange={(event) => setFormData((current) => ({ ...current, usedDate: event.target.value }))}
+                  />
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="useHours">使用时长（小时）</Label>
-                  <Input id="useHours" type="number" step="0.5" min="0.5" placeholder="0.5" />
+                  <Input
+                    id="useHours"
+                    type="number"
+                    step="0.5"
+                    min="0.5"
+                    placeholder="0.5"
+                    value={formData.hours}
+                    onChange={(event) => setFormData((current) => ({ ...current, hours: event.target.value }))}
+                  />
                   <p className="text-xs text-muted-foreground">
                     当前余额: {remainingHours} 小时
                   </p>
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="reason">使用原因</Label>
-                  <Textarea id="reason" placeholder="请输入使用调休的原因..." />
+                  <Textarea
+                    id="reason"
+                    placeholder="请输入使用调休的原因..."
+                    value={formData.note}
+                    onChange={(event) => setFormData((current) => ({ ...current, note: event.target.value }))}
+                  />
                 </div>
+                {formError && <p className="text-sm text-red-600">{formError}</p>}
                 <div className="flex justify-end gap-2">
                   <Button type="button" variant="outline" onClick={() => setIsAddDialogOpen(false)}>
                     取消
@@ -364,6 +458,8 @@ export function CompensatoryLeave() {
             <TableHeader>
               <TableRow>
                 <TableHead>来源月份</TableHead>
+                <TableHead>月加班</TableHead>
+                <TableHead>折算门槛</TableHead>
                 <TableHead>获得时长</TableHead>
                 <TableHead>已使用</TableHead>
                 <TableHead>余额</TableHead>
@@ -373,30 +469,92 @@ export function CompensatoryLeave() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {compensatoryRecords.map((record, index) => (
-                <TableRow key={record.id} className={index % 2 === 0 ? 'bg-muted/20' : ''}>
-                  <TableCell className="font-medium">{record.sourceMonth}</TableCell>
-                  <TableCell>{record.hours}h</TableCell>
-                  <TableCell>{record.usedHours}h</TableCell>
-                  <TableCell>
-                    <span className="font-medium">
-                      {record.hours - record.usedHours}h
-                    </span>
-                    {record.hours - record.usedHours >= 8 && <span className="ml-1">🎉</span>}
+              {compensatoryRecords.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={9} className="text-center text-muted-foreground py-8">
+                    暂无可折算调休的历史加班数据
                   </TableCell>
-                  <TableCell className={new Date(record.expiryDate) < new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) ? 'text-orange-600' : ''}>
-                    {record.expiryDate}
-                    {new Date(record.expiryDate) < new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) && 
-                      <span className="ml-1">⚠️</span>}
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant={getStatusVariant(record.status)}>
-                      {getStatusText(record.status)}
-                    </Badge>
-                  </TableCell>
-                  <TableCell className="max-w-32 truncate">{record.notes}</TableCell>
                 </TableRow>
-              ))}
+              ) : (
+                compensatoryRecords.map((record, index) => (
+                  <TableRow key={record.id} className={index % 2 === 0 ? 'bg-muted/20' : ''}>
+                    <TableCell className="font-medium">{record.sourceMonth}</TableCell>
+                    <TableCell>{record.overtimeHours}h</TableCell>
+                    <TableCell>{record.thresholdHours}h/天</TableCell>
+                    <TableCell>{record.hours}h</TableCell>
+                    <TableCell>{record.usedHours}h</TableCell>
+                    <TableCell>
+                      <span className="font-medium">
+                        {record.hours - record.usedHours}h
+                      </span>
+                      {record.hours - record.usedHours >= 7.5 && <span className="ml-1">🎉</span>}
+                    </TableCell>
+                    <TableCell className={new Date(`${record.expiryDate}T23:59:59`) < new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) ? 'text-orange-600' : ''}>
+                      {record.expiryDate}
+                      {new Date(`${record.expiryDate}T23:59:59`) < new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) &&
+                        <span className="ml-1">⚠️</span>}
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant={getStatusVariant(record.status)}>
+                        {getStatusText(record.status)}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="max-w-32 truncate">{record.notes}</TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Calendar className="w-5 h-5" />
+            使用记录
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="p-0">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>使用日期</TableHead>
+                <TableHead>使用时长</TableHead>
+                <TableHead>扣减来源</TableHead>
+                <TableHead>备注</TableHead>
+                <TableHead>操作</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {usageRecords.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={5} className="text-center text-muted-foreground py-8">
+                    暂无调休使用记录
+                  </TableCell>
+                </TableRow>
+              ) : (
+                usageRecords.map((usage, index) => (
+                  <TableRow key={usage.id} className={index % 2 === 0 ? 'bg-muted/20' : ''}>
+                    <TableCell className="font-medium">{usage.usedDate}</TableCell>
+                    <TableCell>{usage.hours}h</TableCell>
+                    <TableCell>
+                      {usage.allocations.map((allocation) => `${allocation.grantId}: ${allocation.hours}h`).join('，')}
+                    </TableCell>
+                    <TableCell className="max-w-48 truncate">{usage.note}</TableCell>
+                    <TableCell>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleDeleteUsage(usage.id)}
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
             </TableBody>
           </Table>
         </CardContent>

@@ -39,7 +39,7 @@ export default defineBackground(() => {
         console.log('[加班统计] 收到消息请求:', request);
         console.log('[加班统计] 发送者:', sender);
 
-        handleGetOvertimeStats(request.staffId, request.year, request.month)
+        handleGetOvertimeStats(request.staffId, request.year, request.month, request.forceRefresh)
           .then((result) => {
             console.log('[加班统计] 处理完成，返回结果:', result);
             sendResponse(result);
@@ -57,7 +57,7 @@ export default defineBackground(() => {
   );
 });
 
-async function handleGetOvertimeStats(staffId?: string, reqYear?: number, reqMonth?: number): Promise<MessageResponse> {
+async function handleGetOvertimeStats(staffId?: string, reqYear?: number, reqMonth?: number, forceRefresh = false): Promise<MessageResponse> {
   try {
     console.log('[加班统计] 开始处理请求，staffId:', staffId);
 
@@ -75,13 +75,14 @@ async function handleGetOvertimeStats(staffId?: string, reqYear?: number, reqMon
 
     console.log(`[加班统计] 请求日期: ${year}年${month}月`);
 
-    const { records: validRecords, cacheHit, cacheKey } = await getMonthlyAttendanceRecords({
+    const { records: validRecords, cacheHit, cacheKey, fetchedAt } = await getMonthlyAttendanceRecords({
       staffId,
       year,
       month,
       storage: browser.storage.local,
       fetchDaily: fetchDailyAttendance,
       now,
+      forceRefresh,
     });
 
     console.log(`[加班统计] 月度缓存${cacheHit ? '命中' : '未命中'}: ${cacheKey}`);
@@ -100,6 +101,11 @@ async function handleGetOvertimeStats(staffId?: string, reqYear?: number, reqMon
     return {
       success: true,
       data: stats,
+      cache: {
+        cacheHit,
+        fetchedAt,
+        cacheKey,
+      },
     };
   } catch (error) {
     console.error('[加班统计] 处理请求失败:', error);

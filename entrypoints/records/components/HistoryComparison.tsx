@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Badge } from './ui/badge';
@@ -19,33 +19,61 @@ import {
   Clock,
   Star
 } from 'lucide-react';
-import { AchievementSummary, achievements } from './AchievementSystem';
+import { AchievementSummary } from './AchievementSystem';
+import { getAttendanceHistory, getCachedAttendanceMonths, type AttendanceHistoryMonth } from '../../../utils/monthlyAttendance';
+import { useAchievementState } from '../hooks/useAchievementState';
 
 export function HistoryComparison() {
   const [timeRange, setTimeRange] = useState('6');
   const [chartType, setChartType] = useState('area');
+  const [allHistoryData, setAllHistoryData] = useState<AttendanceHistoryMonth[]>([]);
+  const [statusText, setStatusText] = useState('正在读取本地缓存...');
+  const achievementState = useAchievementState();
+  const achievements = achievementState.achievements;
 
-  // 模拟历史数据
-  const historyData = [
-    { month: '2024-08', hours: 15, label: '8月', weekendHours: 4, efficiency: 85, mood: '😊' },
-    { month: '2024-09', hours: 22, label: '9月', weekendHours: 8, efficiency: 78, mood: '😐' },
-    { month: '2024-10', hours: 18, label: '10月', weekendHours: 6, efficiency: 82, mood: '🙂' },
-    { month: '2024-11', hours: 28, label: '11月', weekendHours: 12, efficiency: 75, mood: '😓' },
-    { month: '2024-12', hours: 12, label: '12月', weekendHours: 2, efficiency: 92, mood: '😄' },
-    { month: '2025-01', hours: 13.5, label: '1月', weekendHours: 8, efficiency: 88, mood: '😊' }
-  ];
+  useEffect(() => {
+    async function loadHistory() {
+      try {
+        if (
+          typeof browser === 'undefined' ||
+          !browser.storage?.local
+        ) {
+          setAllHistoryData([]);
+          setStatusText('当前页面未运行在插件环境中，请从 EHR 汇总行打开详情页。');
+          return;
+        }
+
+        const cached = await browser.storage.local.get('staffId');
+        const staffId = typeof cached.staffId === 'string' ? cached.staffId : undefined;
+        const months = await getCachedAttendanceMonths(browser.storage.local, staffId);
+        const history = getAttendanceHistory(months);
+        setAllHistoryData(history);
+        setStatusText(history.length > 0 ? `已加载 ${history.length} 个月本地缓存。` : '暂无历史缓存，请先在月度总览查询月份数据。');
+      } catch (error) {
+        setAllHistoryData([]);
+        setStatusText(error instanceof Error ? error.message : '历史缓存读取失败。');
+      }
+    }
+
+    loadHistory();
+  }, []);
+
+  const historyData = useMemo(
+    () => allHistoryData.slice(-Number(timeRange)),
+    [allHistoryData, timeRange]
+  );
 
   const currentMonthHours = historyData[historyData.length - 1]?.hours || 0;
   const previousMonthHours = historyData[historyData.length - 2]?.hours || 0;
-  const averageHours = historyData.reduce((sum, item) => sum + item.hours, 0) / historyData.length;
+  const averageHours = historyData.length > 0 ? historyData.reduce((sum, item) => sum + item.hours, 0) / historyData.length : 0;
   const trend = currentMonthHours - previousMonthHours;
-  const maxMonth = historyData.reduce((max, item) => item.hours > max.hours ? item : max, historyData[0]);
-  const minMonth = historyData.reduce((min, item) => item.hours < min.hours ? item : min, historyData[0]);
+  const maxMonth = historyData.reduce((max, item) => item.hours > max.hours ? item : max, historyData[0] || { label: '-', hours: 0 });
+  const minMonth = historyData.reduce((min, item) => item.hours < min.hours ? item : min, historyData[0] || { label: '-', hours: 0 });
 
   // 趣味统计
   const totalHours = historyData.reduce((sum, item) => sum + item.hours, 0);
   const totalWeekendHours = historyData.reduce((sum, item) => sum + item.weekendHours, 0);
-  const avgEfficiency = historyData.reduce((sum, item) => sum + item.efficiency, 0) / historyData.length;
+  const avgEfficiency = totalHours > 0 ? Math.max(50, Math.min(98, 100 - totalWeekendHours / totalHours * 20 - averageHours / 4)) : 0;
   const nightOwlDays = Math.floor(totalHours / 2); // 假设平均每2小时加班算一个"夜猫子"积分
 
   const getAchievementLevel = (hours: number) => {
@@ -59,7 +87,8 @@ export function HistoryComparison() {
   const Icon = achievement.icon;
 
   const getPersonalityType = () => {
-    const avgWeekendRatio = totalWeekendHours / totalHours;
+    if (historyData.length === 0) return { type: '等待数据', emoji: '📊', desc: '查询月份后会生成历史分析' };
+    const avgWeekendRatio = totalHours > 0 ? totalWeekendHours / totalHours : 0;
     if (avgWeekendRatio > 0.4) return { type: '周末战士', emoji: '⚔️', desc: '你似乎特别喜欢在周末工作' };
     if (avgEfficiency > 85) return { type: '效率大师', emoji: '⚡', desc: '工作效率很高，值得表扬！' };
     if (currentMonthHours < averageHours * 0.7) return { type: '平衡达人', emoji: '🧘', desc: '工作生活平衡得很好' };
@@ -105,8 +134,14 @@ export function HistoryComparison() {
         </div>
       </div>
 
+      <Card>
+        <CardContent className="pt-4">
+          <p className="text-sm text-muted-foreground">{statusText}</p>
+        </CardContent>
+      </Card>
+
       {/* 成就总览 */}
-      <AchievementSummary />
+      <AchievementSummary items={achievements} />
 
       {/* 趣味统计卡片 */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -181,15 +216,20 @@ export function HistoryComparison() {
           <CardTitle className="flex items-center justify-between">
             <span>加班时长趋势</span>
             <div className="flex items-center gap-4 text-sm text-muted-foreground">
-              <span>最高: {maxMonth.label} ({maxMonth.hours}h) {maxMonth.mood}</span>
-              <span>最低: {minMonth.label} ({minMonth.hours}h) {minMonth.mood}</span>
+              <span>最高: {maxMonth.label} ({maxMonth.hours}h)</span>
+              <span>最低: {minMonth.label} ({minMonth.hours}h)</span>
             </div>
           </CardTitle>
         </CardHeader>
-        <CardContent>
+          <CardContent>
           <div className="h-80">
-            <ResponsiveContainer width="100%" height="100%">
-              {chartType === 'bar' ? (
+            {historyData.length === 0 ? (
+              <div className="h-full flex items-center justify-center text-muted-foreground">
+                暂无历史缓存数据
+              </div>
+            ) : (
+              <ResponsiveContainer width="100%" height="100%">
+                {chartType === 'bar' ? (
                 <BarChart data={historyData}>
                   <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
                   <XAxis dataKey="label" />
@@ -199,10 +239,7 @@ export function HistoryComparison() {
                       if (name === 'hours') return [`${value}小时`, '加班时长'];
                       return [value, name];
                     }}
-                    labelFormatter={(label) => {
-                      const data = historyData.find(d => d.label === label);
-                      return `${label} ${data?.mood || ''}`;
-                    }}
+                    labelFormatter={(label) => `${label}`}
                     contentStyle={{ 
                       backgroundColor: 'hsl(var(--background))',
                       border: '1px solid hsl(var(--border))',
@@ -218,10 +255,7 @@ export function HistoryComparison() {
                   <YAxis />
                   <Tooltip 
                     formatter={(value) => [`${value}小时`, '加班时长']}
-                    labelFormatter={(label) => {
-                      const data = historyData.find(d => d.label === label);
-                      return `${label} ${data?.mood || ''}`;
-                    }}
+                    labelFormatter={(label) => `${label}`}
                     contentStyle={{ 
                       backgroundColor: 'hsl(var(--background))',
                       border: '1px solid hsl(var(--border))',
@@ -243,10 +277,7 @@ export function HistoryComparison() {
                   <YAxis />
                   <Tooltip 
                     formatter={(value) => [`${value}小时`, '加班时长']}
-                    labelFormatter={(label) => {
-                      const data = historyData.find(d => d.label === label);
-                      return `${label} ${data?.mood || ''}`;
-                    }}
+                    labelFormatter={(label) => `${label}`}
                     contentStyle={{ 
                       backgroundColor: 'hsl(var(--background))',
                       border: '1px solid hsl(var(--border))',
@@ -262,8 +293,9 @@ export function HistoryComparison() {
                     strokeWidth={2}
                   />
                 </AreaChart>
-              )}
-            </ResponsiveContainer>
+                )}
+              </ResponsiveContainer>
+            )}
           </div>
         </CardContent>
       </Card>
@@ -289,9 +321,9 @@ export function HistoryComparison() {
             <div className="space-y-3">
               <div className="flex justify-between text-sm">
                 <span>周末加班比例</span>
-                <span>{Math.round((totalWeekendHours / totalHours) * 100)}%</span>
+                <span>{totalHours > 0 ? Math.round((totalWeekendHours / totalHours) * 100) : 0}%</span>
               </div>
-              <Progress value={(totalWeekendHours / totalHours) * 100} className="h-2" />
+              <Progress value={totalHours > 0 ? (totalWeekendHours / totalHours) * 100 : 0} className="h-2" />
             </div>
 
             <div className="text-sm space-y-2">

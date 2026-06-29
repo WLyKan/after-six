@@ -1,11 +1,23 @@
 import type { ApiResponse, AttendanceRecord, AttendanceMonthCache } from '../types';
-import { getDaysArray } from './calculator';
+import { calculateOvertime, getDaysArray } from './calculator';
 
 const CACHE_PREFIX = 'attendance';
 
 export interface AttendanceMonthStorage {
-  get(key: string): Promise<Record<string, AttendanceMonthCache | undefined>>;
+  get(key: string | null): Promise<Record<string, unknown>>;
   set(items: Record<string, AttendanceMonthCache>): Promise<void>;
+}
+
+export interface AttendanceHistoryMonth {
+  month: string;
+  label: string;
+  year: number;
+  monthNumber: number;
+  hours: number;
+  weekendHours: number;
+  workdayHours: number;
+  recordCount: number;
+  fetchedAt: string;
 }
 
 interface GetMonthlyAttendanceRecordsOptions {
@@ -15,6 +27,7 @@ interface GetMonthlyAttendanceRecordsOptions {
   storage: AttendanceMonthStorage;
   fetchDaily: (staffId: string, day: string) => Promise<ApiResponse>;
   now?: Date;
+  forceRefresh?: boolean;
 }
 
 export function getAttendanceMonthCacheKey(staffId: string, year: number, month: number): string {
@@ -40,6 +53,45 @@ function isValidCache(value: AttendanceMonthCache | undefined, staffId: string, 
   );
 }
 
+function isAttendanceMonthCache(value: unknown): value is AttendanceMonthCache {
+  if (!value || typeof value !== 'object') return false;
+  const cache = value as AttendanceMonthCache;
+  return Boolean(
+    typeof cache.staffId === 'string' &&
+      typeof cache.year === 'number' &&
+      typeof cache.month === 'number' &&
+      Array.isArray(cache.records) &&
+      typeof cache.fetchedAt === 'string' &&
+      cache.source === 'ehr'
+  );
+}
+
+export async function getCachedAttendanceMonths(storage: AttendanceMonthStorage, staffId?: string): Promise<AttendanceMonthCache[]> {
+  const stored = await storage.get(null);
+  return Object.entries(stored)
+    .filter(([key, value]) => key.startsWith(`${CACHE_PREFIX}:`) && isAttendanceMonthCache(value))
+    .map(([, value]) => value as AttendanceMonthCache)
+    .filter((cache) => !staffId || cache.staffId === staffId)
+    .sort((a, b) => a.year === b.year ? a.month - b.month : a.year - b.year);
+}
+
+export function getAttendanceHistory(caches: AttendanceMonthCache[]): AttendanceHistoryMonth[] {
+  return caches.map((cache) => {
+    const stats = calculateOvertime(cache.records);
+    return {
+      month: `${cache.year}-${String(cache.month).padStart(2, '0')}`,
+      label: `${cache.month}月`,
+      year: cache.year,
+      monthNumber: cache.month,
+      hours: Number((stats.allTime / 1000 / 60 / 60).toFixed(1)),
+      weekendHours: Number((stats.weekTime / 1000 / 60 / 60).toFixed(1)),
+      workdayHours: Number((stats.workTime / 1000 / 60 / 60).toFixed(1)),
+      recordCount: stats.detailList.filter((detail) => detail.sum > 0).length,
+      fetchedAt: cache.fetchedAt,
+    };
+  });
+}
+
 export async function getMonthlyAttendanceRecords({
   staffId,
   year,
@@ -47,16 +99,18 @@ export async function getMonthlyAttendanceRecords({
   storage,
   fetchDaily,
   now = new Date(),
-}: GetMonthlyAttendanceRecordsOptions): Promise<{ records: AttendanceRecord[]; cacheHit: boolean; cacheKey: string }> {
+  forceRefresh = false,
+}: GetMonthlyAttendanceRecordsOptions): Promise<{ records: AttendanceRecord[]; cacheHit: boolean; cacheKey: string; fetchedAt?: string }> {
   const cacheKey = getAttendanceMonthCacheKey(staffId, year, month);
   const cached = await storage.get(cacheKey);
-  const cachedMonth = cached[cacheKey];
+  const cachedMonth = cached[cacheKey] as AttendanceMonthCache | undefined;
 
-  if (isValidCache(cachedMonth, staffId, year, month)) {
+  if (!forceRefresh && isValidCache(cachedMonth, staffId, year, month)) {
     return {
       records: cachedMonth.records,
       cacheHit: true,
       cacheKey,
+      fetchedAt: cachedMonth.fetchedAt,
     };
   }
 
@@ -68,13 +122,15 @@ export async function getMonthlyAttendanceRecords({
     return firstRecord ? [firstRecord] : [];
   });
 
+  const fetchedAt = now.toISOString();
+
   await storage.set({
     [cacheKey]: {
       staffId,
       year,
       month,
       records,
-      fetchedAt: now.toISOString(),
+      fetchedAt,
       source: 'ehr',
     },
   });
@@ -83,5 +139,6 @@ export async function getMonthlyAttendanceRecords({
     records,
     cacheHit: false,
     cacheKey,
+    fetchedAt,
   };
 }
