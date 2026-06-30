@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildCompensatoryLeaveRecords,
+  buildHistoricalCompensatoryLeaveUsages,
   createBalanceCalibrationUsage,
   createCompensatoryUsage,
   getCompensatoryUsageStorageKey,
@@ -9,6 +10,7 @@ import {
   type CompensatoryLeaveUsage,
 } from '../compensatoryLeave';
 import type { AttendanceHistoryMonth } from '../monthlyAttendance';
+import type { AttendanceMonthCache, AttendanceRecord } from '../../types';
 
 function createHistoryMonth(month: string, hours: number): AttendanceHistoryMonth {
   const [yearText, monthText] = month.split('-');
@@ -25,6 +27,37 @@ function createHistoryMonth(month: string, hours: number): AttendanceHistoryMont
     workdayHours: hours,
     recordCount: 1,
     fetchedAt: `${month}-01T00:00:00.000Z`,
+  };
+}
+
+function createCache(month: string, records: AttendanceRecord[]): AttendanceMonthCache {
+  const [yearText, monthText] = month.split('-');
+
+  return {
+    staffId: 'staff-1',
+    year: Number(yearText),
+    month: Number(monthText),
+    records,
+    fetchedAt: `${month}-01T00:00:00.000Z`,
+    source: 'ehr',
+  };
+}
+
+function createRecord(workDay: string, overrides: Partial<AttendanceRecord> = {}): AttendanceRecord {
+  return {
+    work_day: workDay,
+    datetypename: '工作日',
+    sb_dk_time: `${workDay} 08:30:00`,
+    xb_dk_time: `${workDay} 17:30:00`,
+    sb_dk_time2: null,
+    xb_dk_time2: null,
+    sb_dk_time3: null,
+    xb_dk_time3: null,
+    qj_total_min: 0,
+    abnormal_name: '加班',
+    abnormal_type: '12',
+    sub_type: '1',
+    ...overrides,
   };
 }
 
@@ -212,5 +245,61 @@ describe('buildCompensatoryLeaveRecords', () => {
       { grantId: '2025-09', hours: 7.5 },
       { grantId: '2025-10', hours: 5 },
     ]);
+  });
+
+  it('builds historical leave usages from qj_total_min records', () => {
+    const records = buildCompensatoryLeaveRecords(
+      [
+        createHistoryMonth('2025-07', 60),
+        createHistoryMonth('2025-08', 30),
+      ],
+      new Date('2025-09-01T00:00:00')
+    );
+    const caches = [
+      createCache('2025-08', [
+        createRecord('2025-08-06', {
+          abnormal_name: '加班',
+          abnormal_type: '12',
+          sub_type: '1',
+          qj_total_min: 150,
+        }),
+        createRecord('2025-08-07', { qj_total_min: 0 }),
+      ]),
+    ];
+
+    const usages = buildHistoricalCompensatoryLeaveUsages(caches, records);
+
+    expect(usages).toEqual([
+      expect.objectContaining({
+        id: 'history-leave:2025-08-06:150',
+        usedDate: '2025-08-06',
+        hours: 2.5,
+        note: '历史考勤识别：调休假',
+        source: 'history',
+      }),
+    ]);
+    expect(usages[0].allocations).toEqual([{ grantId: '2025-07', hours: 2.5 }]);
+  });
+
+  it('uses historical leave usages to reduce remaining balance', () => {
+    const baseRecords = buildCompensatoryLeaveRecords(
+      [createHistoryMonth('2025-07', 60)],
+      new Date('2025-09-01T00:00:00')
+    );
+    const usages = buildHistoricalCompensatoryLeaveUsages([
+      createCache('2025-08', [
+        createRecord('2025-08-06', { qj_total_min: 150 }),
+        createRecord('2025-08-08', { abnormal_name: '请假', abnormal_type: '6', sub_type: '11', qj_total_min: 300 }),
+      ]),
+    ], baseRecords);
+
+    const updatedRecords = buildCompensatoryLeaveRecords(
+      [createHistoryMonth('2025-07', 60)],
+      new Date('2025-09-01T00:00:00'),
+      usages
+    );
+
+    expect(usages.map((usage) => usage.hours)).toEqual([2.5, 5]);
+    expect(getRemainingCompensatoryHours(updatedRecords)).toBe(7.5);
   });
 });

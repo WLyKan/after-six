@@ -2,6 +2,11 @@
 export interface AttendanceRecord {
   work_day: string;
   datetypename: string;
+  abnormal_name?: string | null;
+  abnormal_type?: string | null;
+  qj_total_min?: number | string | null;
+  sj_total_min?: number | string | null;
+  sub_type?: string | null;
   sb_dk_time: string | null;
   xb_dk_time: string | null;
   sb_dk_time2: string | null;

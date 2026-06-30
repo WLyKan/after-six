@@ -1,3 +1,4 @@
+import type { AttendanceMonthCache, AttendanceRecord } from '../types';
 import type { AttendanceHistoryMonth } from './monthlyAttendance';
 
 export const COMPENSATORY_LEAVE_HOURS_PER_DAY = 7.5;
@@ -17,6 +18,7 @@ export interface CompensatoryLeaveUsage {
   note: string;
   allocations: CompensatoryLeaveAllocation[];
   createdAt: string;
+  source?: 'manual' | 'history' | 'calibration';
 }
 
 export interface CompensatoryLeaveRecord {
@@ -39,6 +41,7 @@ interface CreateCompensatoryUsageOptions {
   note: string;
   id?: string;
   createdAt?: string;
+  source?: CompensatoryLeaveUsage['source'];
 }
 
 function getCompensatoryThreshold(year: number, month: number): number {
@@ -133,6 +136,7 @@ export function createCompensatoryUsage({
   note,
   id = crypto.randomUUID(),
   createdAt = new Date().toISOString(),
+  source = 'manual',
 }: CreateCompensatoryUsageOptions): CompensatoryLeaveUsage {
   if (!usedDate) {
     throw new Error('请选择使用日期');
@@ -177,6 +181,7 @@ export function createCompensatoryUsage({
     note,
     allocations,
     createdAt,
+    source,
   };
 }
 
@@ -198,7 +203,51 @@ export function createBalanceCalibrationUsage(
     note: `历史调休余额校准，保留当前有效余额 ${targetRemainingHours}h`,
     id: 'initial-balance-calibration',
     createdAt,
+    source: 'calibration',
   });
+}
+
+function getLeaveMinutes(record: AttendanceRecord): number {
+  return Number(record.qj_total_min || 0);
+}
+
+function isHistoricalCompensatoryLeave(record: AttendanceRecord): boolean {
+  // EHR 的主异常字段可能被“加班”覆盖，例如半天调休假同时有加班时
+  // abnormal_name 仍可能是“加班”。qj_total_min 才是历史请假时长的稳定信号。
+  return getLeaveMinutes(record) > 0;
+}
+
+export function buildHistoricalCompensatoryLeaveUsages(
+  caches: AttendanceMonthCache[],
+  records: CompensatoryLeaveRecord[]
+): CompensatoryLeaveUsage[] {
+  const leaveRecords = caches
+    .flatMap((cache) => cache.records)
+    .filter(isHistoricalCompensatoryLeave)
+    .sort((a, b) => a.work_day.localeCompare(b.work_day));
+  const usages: CompensatoryLeaveUsage[] = [];
+
+  for (const record of leaveRecords) {
+    const hours = roundHours(getLeaveMinutes(record) / 60);
+    const allocatedRecords = applyUsageRecords(records, usages);
+
+    if (getRemainingCompensatoryHours(allocatedRecords) <= 0) continue;
+
+    const usage = createCompensatoryUsage({
+      records: allocatedRecords,
+      existingUsages: usages,
+      usedDate: record.work_day,
+      hours,
+      note: '历史考勤识别：调休假',
+      id: `history-leave:${record.work_day}:${getLeaveMinutes(record)}`,
+      createdAt: `${record.work_day}T00:00:00.000Z`,
+      source: 'history',
+    });
+
+    usages.push(usage);
+  }
+
+  return usages;
 }
 
 export function normalizeCompensatoryUsages(value: unknown): CompensatoryLeaveUsage[] {
@@ -214,6 +263,7 @@ export function normalizeCompensatoryUsages(value: unknown): CompensatoryLeaveUs
         typeof usage.hours === 'number' &&
         typeof usage.note === 'string' &&
         typeof usage.createdAt === 'string' &&
+        (usage.source === undefined || usage.source === 'manual' || usage.source === 'history' || usage.source === 'calibration') &&
         Array.isArray(usage.allocations) &&
         usage.allocations.every((allocation) => (
           allocation &&

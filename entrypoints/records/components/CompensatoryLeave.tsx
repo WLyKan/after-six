@@ -25,6 +25,7 @@ import {
 } from 'lucide-react';
 import {
   buildCompensatoryLeaveRecords,
+  buildHistoricalCompensatoryLeaveUsages,
   createBalanceCalibrationUsage,
   createCompensatoryUsage,
   getCompensatoryUsageStorageKey,
@@ -67,11 +68,17 @@ export function CompensatoryLeave() {
         const months = await getCachedAttendanceMonths(browser.storage.local, staffId);
         const history = getAttendanceHistory(months);
         const storedUsages = await browser.storage.local.get(storageKey);
-        let usages = normalizeCompensatoryUsages(storedUsages[storageKey]);
+        const persistedUsages = normalizeCompensatoryUsages(storedUsages[storageKey]);
+        const baseRecords = buildCompensatoryLeaveRecords(history);
+        const historicalUsages = buildHistoricalCompensatoryLeaveUsages(months, baseRecords);
+        const userManagedUsages = persistedUsages.filter((usage) => (
+          usage.source !== 'history' &&
+          !(historicalUsages.length > 0 && usage.source === 'calibration')
+        ));
+        let usages = [...historicalUsages, ...userManagedUsages];
         let records = buildCompensatoryLeaveRecords(history, new Date(), usages);
 
-        if (history.length > 0 && usages.length === 0) {
-          const baseRecords = buildCompensatoryLeaveRecords(history);
+        if (history.length > 0 && historicalUsages.length === 0 && userManagedUsages.length === 0) {
           const calibrationUsage = createBalanceCalibrationUsage(baseRecords);
 
           if (calibrationUsage) {
@@ -102,7 +109,9 @@ export function CompensatoryLeave() {
   const persistUsageRecords = async (nextUsages: CompensatoryLeaveUsage[]) => {
     if (!usageStorageKey || typeof browser === 'undefined' || !browser.storage?.local) return;
 
-    await browser.storage.local.set({ [usageStorageKey]: nextUsages });
+    const persistedUsages = nextUsages.filter((usage) => usage.source !== 'history');
+
+    await browser.storage.local.set({ [usageStorageKey]: persistedUsages });
     setUsageRecords(nextUsages);
     setCompensatoryRecords(buildCompensatoryLeaveRecords(historyData, new Date(), nextUsages));
     setStatusText(`已从 ${historyData.length} 个月历史缓存统计调休，已加载 ${nextUsages.length} 条使用记录。`);
@@ -135,7 +144,7 @@ export function CompensatoryLeave() {
   };
 
   const handleDeleteUsage = async (usageId: string) => {
-    const nextUsages = usageRecords.filter((usage) => usage.id !== usageId);
+    const nextUsages = usageRecords.filter((usage) => usage.id !== usageId || usage.source === 'history');
     await persistUsageRecords(nextUsages);
   };
 
@@ -177,6 +186,17 @@ export function CompensatoryLeave() {
         return '已过期';
       default:
         return '未知';
+    }
+  };
+
+  const getUsageSourceText = (source: CompensatoryLeaveUsage['source']) => {
+    switch (source) {
+      case 'history':
+        return '历史识别';
+      case 'calibration':
+        return '余额校准';
+      default:
+        return '手工记录';
     }
   };
 
@@ -521,6 +541,7 @@ export function CompensatoryLeave() {
               <TableRow>
                 <TableHead>使用日期</TableHead>
                 <TableHead>使用时长</TableHead>
+                <TableHead>来源</TableHead>
                 <TableHead>扣减来源</TableHead>
                 <TableHead>备注</TableHead>
                 <TableHead>操作</TableHead>
@@ -529,7 +550,7 @@ export function CompensatoryLeave() {
             <TableBody>
               {usageRecords.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={5} className="text-center text-muted-foreground py-8">
+                  <TableCell colSpan={6} className="text-center text-muted-foreground py-8">
                     暂无调休使用记录
                   </TableCell>
                 </TableRow>
@@ -539,18 +560,27 @@ export function CompensatoryLeave() {
                     <TableCell className="font-medium">{usage.usedDate}</TableCell>
                     <TableCell>{usage.hours}h</TableCell>
                     <TableCell>
+                      <Badge variant={usage.source === 'history' ? 'secondary' : 'outline'}>
+                        {getUsageSourceText(usage.source)}
+                      </Badge>
+                    </TableCell>
+                    <TableCell>
                       {usage.allocations.map((allocation) => `${allocation.grantId}: ${allocation.hours}h`).join('，')}
                     </TableCell>
                     <TableCell className="max-w-48 truncate">{usage.note}</TableCell>
                     <TableCell>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => handleDeleteUsage(usage.id)}
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </Button>
+                      {usage.source === 'history' ? (
+                        <span className="text-xs text-muted-foreground">自动</span>
+                      ) : (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleDeleteUsage(usage.id)}
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      )}
                     </TableCell>
                   </TableRow>
                 ))
